@@ -1,0 +1,391 @@
+---
+title: "Final_flash"
+format: html
+editor: visual
+---
+
+```{r}
+library(tidyverse)
+library(MASS)
+library(caTools)
+library(glmnet)
+library(Rcpp)
+library(parallel)
+library(RcppArmadillo)
+```
+
+```{r}
+library(magick)
+# Simulation parameters
+n_sub <- 100 # number of subjects
+n_time <- 50 # number of timepoints per subject
+n_node <- 256
+```
+
+```{r}
+# Load required libraries
+library(magick) # For image reading
+library(Matrix) # For sparse matrix operations
+
+rotate_90_clockwise <- function(mat) {
+  t(apply(mat, 2, rev))
+}
+
+# Function to import university logos as symmetric matrices
+import_logo <- function(file) {
+  # Read the image
+  logo <- image_read(file)
+  
+  # logo_rotated <- image_rotate(logo, 90)
+  
+  # Extract pixel data as numeric array
+  # logo_data <- as.numeric(image_data(logo_rotated))
+  logo_data <- as.numeric(image_data(logo))
+  
+  # Check if the image is multi-channel (RGB)
+  if (length(dim(logo_data)) == 3) {
+    # Convert RGB to grayscale using weights
+    logo_data <- apply(logo_data[,,1:3], c(1, 2), function(x) sum(x * c(0.2989, 0.5870, 0.1140)))
+  }
+  
+  # Make values range from -1 to 1
+  logo_data <- logo_data / 127.5 - 1
+  
+  # Fix round-off errors, make matrix sparse
+  logo_data[abs(logo_data) < 0.005] <- 0
+  
+  # Reflect upper triangle to lower triangle
+  i_upper <- which(upper.tri(logo_data), arr.ind = TRUE)
+  i_lower <- which(lower.tri(logo_data), arr.ind = TRUE)
+  logo_data[i_lower] <- t(logo_data)[i_lower]
+  
+  logo_data_rotated <- rotate_90_clockwise(logo_data)
+  
+  # Return as a symmetric sparse matrix
+  return(Matrix(logo_data_rotated, sparse = TRUE))
+}
+
+import_logo <- function(file) {
+  # Read the image
+  logo <- image_read(file)
+  
+  # logo_rotated <- image_rotate(logo, 90)
+  
+  # Extract pixel data as numeric array
+  # logo_data <- as.numeric(image_data(logo_rotated))
+  logo_data <- as.numeric(image_data(logo))
+  
+  # Check if the image is multi-channel (RGB)
+  if (length(dim(logo_data)) == 3) {
+    # Convert RGB to grayscale using weights
+    logo_data <- apply(logo_data[,,1:3], c(1, 2), function(x) sum(x * c(0.2989, 0.5870, 0.1140)))
+  }
+  
+  # Make values range from -1 to 1
+  logo_data <- (logo_data - 0.5)*2
+  
+  # Fix round-off errors, make matrix sparse
+  logo_data[abs(logo_data) < 0.005] <- 0
+  
+  # Reflect upper triangle to lower triangle
+  i_upper <- which(upper.tri(logo_data), arr.ind = TRUE)
+  i_lower <- which(lower.tri(logo_data), arr.ind = TRUE)
+  logo_data[i_lower] <- t(logo_data)[i_lower]
+  
+  # Return as a symmetric sparse matrix
+  return(logo_data)
+}
+
+
+# Read in the image files
+umn_logo <- import_logo("umn_logo.png")
+washu_logo <- import_logo("washu_logo.png")
+
+# Ensure matrices have the same dimensions
+if (!all(dim(umn_logo) == dim(washu_logo))) {
+  stop("Error: Matrices must have the same dimensions.")
+}
+
+# Ensure matrices are square
+if (nrow(umn_logo) != ncol(umn_logo)) {
+  stop("Error: Matrices must be square.")
+}
+
+# The number of nodes is equal to the dimension of the square matrix
+n_node <- nrow(umn_logo)
+
+# Display one of the logos as a test
+library(ggplot2)
+library(reshape2)
+
+# umn_logo_rotated <- t(umn_logo)
+# rotated_image <- imrotate(umn_logo, angle = -90)
+
+umn_logo_df <- melt(as.matrix(umn_logo))
+
+# Plot the matrix
+ggplot(umn_logo_df, aes(x = Var1, y = Var2, fill = value)) +
+  geom_tile() +
+  scale_fill_gradient(low = "black", high = "white") +
+  coord_fixed() +
+  theme_void() +
+  labs(title = "UMN Logo")
+
+```
+
+```{r}
+library(Matrix)
+
+# Define the EigSplit class
+EigSplit <- setRefClass(
+  "EigSplit",
+  fields = list(
+    eigenvectors = "matrix",
+    sqrt_eigenvalues_pos = "numeric",
+    sqrt_eigenvalues_neg = "numeric"
+  ),
+  
+  methods = list(
+    initialize = function(symmetric_matrix) {
+      # Machine epsilon for float precision
+      eps <- .Machine$double.eps
+      
+      # Perform eigendecomposition
+      eig <- eigen(symmetric_matrix, symmetric = TRUE)
+      
+      # Store the eigenvectors
+      eigenvectors <<- eig$vectors
+      
+      # Positive eigenvalues
+      eigenvalues_pos <- pmax(eig$values, eps)
+      sqrt_eigenvalues_pos <<- sqrt(eigenvalues_pos)
+      
+      # Negative eigenvalues (inverted)
+      eigenvalues_neg <- pmax(-eig$values, eps)
+      sqrt_eigenvalues_neg <<- sqrt(eigenvalues_neg)
+    }
+  )
+)
+
+umn_eig <- EigSplit(as.matrix(umn_logo))
+
+EigPosNeg <- setRefClass(
+  "EigPosNeg",
+  fields = list(
+    matrixPositive = "matrix",
+    matrixNegative = "matrix"
+  ),
+  
+  methods = list(
+    initialize = function(symmetric_matrix){
+      # Perform split eigendecomposition on the symmetric matrix
+      eigsplitObject <- EigSplit(as.matrix(symmetric_matrix))
+      
+      # Reconstruct SPD matrix for positive eigenvalues
+      half <- eigsplitObject$eigenvectors %*% diag(eigsplitObject$sqrt_eigenvalues_pos)
+      matrixPositive <<- tcrossprod(half, half)
+      
+      # Reconstruct the SPD matrix for negative eigenvalues
+      half <- eigsplitObject$eigenvectors %*% diag(eigsplitObject$sqrt_eigenvalues_neg)
+      matrixNegative <<- tcrossprod(half, half)
+    }
+  )
+)
+
+umn_pos_neg <- EigPosNeg(umn_logo)
+
+# image(umn_pos, col = gray.colors(256), main = "UMN Logo, Positive Eigenvalues", axes = FALSE)
+# image(umn_neg, col = gray.colors(256), main = "UMN Logo, Negative Eigenvalues", axes = FALSE)
+# image(umn_pos - umn_neg, col = gray.colors(256), main = "UMN Logo, Difference of Two SPD Matrices", axes = FALSE)
+
+image(umn_pos_neg$matrixPositive, col = gray.colors(256), main = "UMN Logo, Positive Eigenvalues", axes = FALSE)
+image(umn_pos_neg$matrixNegative, col = gray.colors(256), main = "UMN Logo, Negative Eigenvalues", axes = FALSE)
+image(umn_pos_neg$matrixPositive - umn_pos_neg$matrixNegative, col = gray.colors(256), main = "UMN Logo, Difference of Two SPD Matrices", axes = FALSE)
+
+```
+
+```{r}
+library(matrixStats)
+
+xaugBuild <- function(n_sub){
+  # Construct random design matrix
+  x <- matrix(rnorm(n_sub), ncol = 1)
+  x_aug <- matrix(0, nrow=n_sub, ncol=2)
+  x_aug[,1] <- x[,1]
+  x_aug[,2] <- -x[,1]
+  
+  # Shift the columns of x to be positive
+  x_min <- min(x_aug)
+  x_aug <- x_aug + abs(x_min)
+  return(list(x=x, x_aug=x_aug))
+}
+
+x_aug_obj <- xaugBuild(n_sub)
+```
+
+```{r}
+
+x_aug <- x_aug_obj$x_aug
+
+# Allocate array to store simulated timeseries.
+tdata <- array(0, dim = c(n_sub, n_time, n_node))
+
+for (i in 1:n_sub) {
+  # Timeseries for umn logo.
+  trand <- matrix(rnorm(n_time * n_node), nrow = n_time, ncol = n_node)
+  umn_t_pos <- sqrt(x_aug[i, 1]) * t(t(trand) * umn_eig$sqrt_eigenvalues_pos) %*% t(umn_eig$eigenvectors)
+  umn_t_neg <- sqrt(x_aug[i, 2]) * t(t(trand) * umn_eig$sqrt_eigenvalues_neg) %*% t(umn_eig$eigenvectors)
+  tdata[i, , ] <- umn_t_pos + umn_t_neg
+}
+
+
+temp_cov <- cov(tdata[1, , ])
+
+# Plot the average covariance matrix
+image(temp_cov, col = gray.colors(256), main = "Average Covariance Matrix", axes = FALSE)
+```
+
+```{r}
+temp_cov_og <- cov(tdata[1, , ])
+
+# Plot the average covariance matrix
+image(temp_cov_og, col = gray.colors(256), main = "Average Covariance Matrix", axes = FALSE)
+```
+
+```{r}
+
+
+arrayBuild <- function(n_sub, n_time, n_node, x_aug, eigsplitObject){
+
+  tdata <- apply(x_aug, 1, function(row,  
+                           n_sub,
+                           n_time,
+                           n_node,
+                           eigsplitObject) {
+    trand <- matrix(rnorm(n_time * n_node), nrow = n_time, ncol = n_node)
+    temp_t_pos <- sqrt(row[1]) * t(t(trand) * eigsplitObject$sqrt_eigenvalues_pos) %*% t(eigsplitObject$eigenvectors)
+    temp_t_neg <- sqrt(row[2]) * t(t(trand) * eigsplitObject$sqrt_eigenvalues_neg) %*% t(eigsplitObject$eigenvectors)
+    
+    return(temp_t_pos + temp_t_neg)
+  }, 
+    n_sub=n_sub,
+    n_time=n_time,
+    n_node=n_node,
+    eigsplitObject=eigsplitObject,
+    simplify = FALSE)
+  
+  tdata <- abind::abind(tdata, along=3)
+  
+  return(tdata)
+}
+
+tempobj <- arrayBuild(n_sub, n_time, n_node, x_aug_obj$x_aug, umn_eig)
+```
+
+```{r}
+temp_cov_2 <- cov(tempobj[, ,1])
+
+# Plot the average covariance matrix
+image(temp_cov_2, col = gray.colors(256), main = "Average Covariance Matrix", axes = FALSE)
+```
+
+```{r}
+vectorize_uplo <- function(mat) {
+  mat[upper.tri(mat)]
+}
+
+constructMatrices <- function(n_sub, n_time, n_node, tdata){
+  n_edge <- (n_node * n_node - n_node) / 2
+  cov_data <- apply(tdata, 3, function(x){
+    mat <- cov(x, use = "pairwise.complete.obs")
+    return(mat[upper.tri(mat)])
+  })
+  cor_data <- apply(tdata, 3, function(x){
+    mat <- cor(x, use = "pairwise.complete.obs")
+    return(mat[upper.tri(mat)])
+  })
+  
+  return(list(cov_data=t(cov_data), cor_data=t(cor_data)))
+}
+
+tempMats <- constructMatrices(n_sub = n_sub, n_time = n_time, n_node = n_node, tdata = tempobj)
+
+# Visualize the average covariance matrix
+average_cov <- matrix(0, nrow = n_node, ncol = n_node)
+average_cov[upper.tri(average_cov)] <- colMeans(tempMats$cov_data)
+average_cov <- average_cov + t(average_cov)  # Symmetrize matrix
+
+image(average_cov, col = gray.colors(256), main = "Average Covariance Matrix", axes = FALSE)
+```
+
+```{r}
+# Helper function to unvectorize upper triangular part into a symmetric matrix
+unvectorize_uplo <- function(vec, n_node) {
+  mat <- matrix(0, nrow = n_node, ncol = n_node)
+  mat[upper.tri(mat)] <- vec
+  mat <- mat + t(mat)  # Symmetrize
+  return(mat)
+}
+
+functionalImage <- function(x_aug, data_matrices, n_node){
+  X <- cbind(1, x_aug$x)
+  b_cov <- solve(crossprod(X, X)) %*% crossprod(X, data_matrices$cov_data)
+  b_cor <- solve(crossprod(X, X)) %*% crossprod(X, data_matrices$cor_data)
+  
+  cov_matrix <- unvectorize_uplo(b_cov[2,], n_node)
+  cor_matrix <- unvectorize_uplo(b_cor[2,], n_node)
+  
+  return(list(b_cov=b_cov, cov_matrix=cov_matrix, b_cor=b_cor, cor_matrix=cor_matrix))
+}
+
+temp <- functionalImage(x_aug=x_aug_obj, data_matrices = tempMats, n_node = n_node)
+# Visualize the regression results for covariance matrices
+
+image(
+  temp$cov_matrix, 
+  col = gray.colors(256), 
+  main = "UMN Logo, Covariance", 
+  axes = FALSE
+)
+
+# Visualize the regression results for correlation matrices
+image(
+  temp$cor_matrix, 
+  col = gray.colors(256), 
+  main = "UMN Logo, Correlation", 
+  axes = FALSE
+)
+```
+
+```{r}
+image(
+  unvectorize_uplo(temp$b_cov[2,], n_node), 
+  col = gray.colors(256), 
+  main = "UMN Logo, Covariance", 
+  axes = FALSE
+)
+```
+
+```{r}
+benchmark_results <- microbenchmark::microbenchmark(
+  original = half %*% t(half),
+  tcross = tcrossprod(half, half),
+  times = 1000
+)
+
+print(benchmark_results)
+```
+
+```{r}
+data <- matrix(1:9, nrow = 3, byrow = TRUE)
+rownames(data) <- c("Row1", "Row2", "Row3")
+colnames(data) <- c("A", "B", "C")
+
+# Apply function with row index
+result <- apply(data, 1, function(row, row_index) {
+  cat("Processing row index:", row_index, "\n")
+  cat("Row values:", row, "\n")
+  sum(row)  # Example operation
+}, row_index = seq_len(nrow(data)))
+
+```
