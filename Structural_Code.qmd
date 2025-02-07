@@ -21,6 +21,7 @@ library(magick)
 n_sub <- 1 # number of subjects
 n_time <- 50 # number of timepoints per subject
 n_node <- 256
+epsilon <- 1e-6
 ```
 
 ```{r}
