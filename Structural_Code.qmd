@@ -16,6 +16,7 @@ library(RcppArmadillo)
 
 ```{r}
 library(magick)
+# Modified on February 7, 2025
 # Simulation parameters
 n_sub <- 1 # number of subjects
 n_time <- 50 # number of timepoints per subject
