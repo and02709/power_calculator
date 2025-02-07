@@ -25,6 +25,11 @@ epsilon <- 1e-6
 ```
 
 ```{r}
+Correlation_matrix <- diag(1, n_node)
+```
+
+
+```{r}
 # Load required libraries
 library(magick) # For image reading
 library(Matrix) # For sparse matrix operations
