@@ -46,6 +46,9 @@ ridge_model <- readRDS(paste0(WRKDIR, "/pwr_data/ridge.rds"))
 
 # --- Step 5: Assign y values ---
 y <- predict(ridge_model, as.matrix(train_data))
+y_var <- var(y)
+eps <- eps*y_var
+y <- y + rnorm(dim(train_data)[[1]], 0, sqrt(eps))
 y_test <- predict(ridge_model, as.matrix(test_data))
 
 # --- Step 6: Train model from Train Data ---
