@@ -14,6 +14,7 @@
 WRKDIR=$1
 KFOLDS=$2
 PHENO=$3
+EPSILON=$4
 FILEDIR=/users/0/and02709/power_calculator
 
 module load R/4.4.0-openblas-rocky8
