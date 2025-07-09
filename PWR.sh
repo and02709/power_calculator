@@ -22,6 +22,13 @@ cd $WRKDIR
 mkdir -p $WRKDIR/pwr_data
 cd $WRKDIR/pwr_data
 
+# Step 0: check the EPSILON index
+# Check if EPSILON is a number and within the valid range [0, 1)
+if ! [[ "$EPSILON" =~ ^[0-9]+([.][0-9]+)?$ ]] || (( $(echo "$EPSILON < 0" | bc -l) )) || (( $(echo "$EPSILON >= 1" | bc -l) )); then
+    echo "Error: EPSILON must be a number greater than or equal to 0 and less than 1." >&2
+    exit 1
+fi
+
 # Step 1: generate index file
 sbatch --time=1:00:00 --mem=4GB --cpus-per-task=1 --wait -N1 $FILEDIR/pwr_index_file.sh $WRKDIR $FILEDIR $PHENO $FILEDIR
 
