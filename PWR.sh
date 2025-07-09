@@ -24,8 +24,8 @@ cd $WRKDIR/pwr_data
 
 # Step 0: check the EPSILON index
 # Check if EPSILON is a number and within the valid range [0, 1)
-if ! [[ "$EPSILON" =~ ^[0-9]+([.][0-9]+)?$ ]] || (( $(echo "$EPSILON < 0" | bc -l) )) || (( $(echo "$EPSILON >= 1" | bc -l) )); then
-    echo "Error: EPSILON must be a number greater than or equal to 0 and less than 1." >&2
+if ! [[ "$EPSILON" =~ ^[0-9]+([.][0-9]+)?$ ]] || (( $(echo "$EPSILON <= 0" | bc -l) )) || (( $(echo "$EPSILON > 1" | bc -l) )); then
+    echo "Error: EPSILON must be a number greater than 0 and at most 1." >&2
     exit 1
 fi
 
