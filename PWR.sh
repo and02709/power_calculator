@@ -59,7 +59,7 @@ sbatch --time=1:00:00 --mem=16GB --cpus-per-task=2 --wait -N1 $FILEDIR/setupCVme
 NUMFFILES=$(ls "$WRKDIR"/pwr_data/full_*_fold_*_split.rds 2>/dev/null | wc -l)
 
 # Step 12: Perform CV metrics
-sbatch --time=2:00:00 --mem=32GB --cpus-per-task=2 --array=1-$NUMFFILES --wait -N1 $FILEDIR/cv.sh $WRKDIR $FILEDIR $NUMFILES $KFOLDS
+sbatch --time=2:00:00 --mem=32GB --cpus-per-task=2 --array=1-$NUMFFILES --wait -N1 $FILEDIR/cv.sh $WRKDIR $FILEDIR $NUMFILES $KFOLDS $EPSILON
 
 # Step 13: Final Compilation
 sbatch --time=12:00:00 --mem=96GB --cpus-per-task=8 --wait -N1 $FILEDIR/final_data.sh $WRKDIR $FILEDIR $PHENO $FILEDIR 
