@@ -16,7 +16,7 @@ WRKDIR=$1
 FILEDIR=$2
 PHENO=$3
 
-module load R/4.4.0-openblas-rocky8
+module load python3
 
 # Call R script to process this chunk
-Rscript $FILEDIR/ridge_model_generation.R $WRKDIR $FILEDIR $PHENO
+python3 $FILEDIR/ridge_model_generation.py $WRKDIR $FILEDIR $PHENO

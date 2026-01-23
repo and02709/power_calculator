@@ -1,5 +1,5 @@
 warning("Running pwr_setup")
-sample_sizes <- c(50, 100, 200, 500, 1000, 2000, 5000, 10000)
+sample_sizes <- c(100, 139, 194, 271, 378, 528, 736, 1027, 1433, 2000)
 repeated_vector <- rep(sample_sizes, times = sample_sizes)
 count_vector <- unlist(lapply(sample_sizes, function(n) 1:n))
 n_index <- length(repeated_vector)

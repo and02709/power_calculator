@@ -1,23 +1,25 @@
 #!/bin/bash -l
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=4
-#SBATCH --cpus-per-task=20
-#SBATCH --mem=96GB
-#SBATCH --time=12:00:00
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=64GB
+#SBATCH --time=1:00:00
 #SBATCH -p msismall
-#SBATCH --mail-type=FAIL  
-#SBATCH --mail-user=and02709@umn.edu 
 #SBATCH -o combine_data.out
 #SBATCH -e combine_data.err
-#SBATCH --job-name combine_data
+#SBATCH --job-name=combine_data
 
-WRKDIR=$1
-KFOLDS=$2
-PHENO=$3
-FILEDIR=$4
+set -euo pipefail
 
-module load R/4.4.0-openblas-rocky8
-cd $WRKDIR/pwr_data
+WRKDIR="$1"
+FILEDIR="$2"
 
-# Step 1: generate index file
-Rscript $FILEDIR/combine_data.R $WRKDIR $FILEDIR
+cd "$WRKDIR/pwr_data"
+
+module load conda
+source "$(conda info --base)/etc/profile.d/conda.sh"
+conda activate pwr_py
+
+python "$FILEDIR/combine_data.py" "$WRKDIR" "$FILEDIR"
+# If you want RDS outputs too (requires pyreadr in env):
+# python "$FILEDIR/python_refactor/combine_data.py" "$WRKDIR" "$FILEDIR" --write-rds

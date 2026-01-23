@@ -5,19 +5,26 @@
 #SBATCH --mem=96GB
 #SBATCH --time=12:00:00
 #SBATCH -p msismall
-#SBATCH --mail-type=FAIL  
-#SBATCH --mail-user=and02709@umn.edu 
+#SBATCH --mail-type=FAIL
+#SBATCH --mail-user=and02709@umn.edu
 #SBATCH -o pwr_index_file.out
 #SBATCH -e pwr_index_file.err
 #SBATCH --job-name pwr_index_file
 
+set -euo pipefail
+
 WRKDIR=$1
-KFOLDS=$2
-PHENO=$3
-FILEDIR=$4
+FILEDIR=$2
 
-module load R/4.4.0-openblas-rocky8
-cd $WRKDIR/pwr_data
+# ---- Load Python instead of R ----
+module load python3  # adjust if your cluster uses a different module
 
-# Step 1: generate index file
-Rscript $FILEDIR/pwr_index_file.R
+cd "${WRKDIR}/pwr_data"
+
+echo "[INFO] Running pwr_index_file.py"
+echo "[INFO] WRKDIR  = ${WRKDIR}"
+echo "[INFO] FILEDIR = ${FILEDIR}"
+echo "[INFO] pwd     = $(pwd)"
+
+# ---- Run Python script ----
+python3 "${FILEDIR}/pwr_index_file.py"

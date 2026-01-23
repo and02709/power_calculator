@@ -12,12 +12,10 @@
 #SBATCH --job-name final_data
 
 WRKDIR=$1
-KFOLDS=$2
-PHENO=$3
-FILEDIR=$4
+FILEDIR=$2
 
-module load R/4.4.0-openblas-rocky8
+module load python3
 cd $WRKDIR/pwr_data
 
 # Step 1: generate index file
-Rscript $FILEDIR/final_data.R $WRKDIR $FILEDIR
+python3 $FILEDIR/final_data.py $WRKDIR $FILEDIR

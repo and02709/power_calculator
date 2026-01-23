@@ -18,5 +18,5 @@ NUMFILES=$3
 KFOLDS=$4
 INDEX=${SLURM_ARRAY_TASK_ID}
 
-module load R/4.4.0-openblas-rocky8
-Rscript $FILEDIR/cvGen.R $WRKDIR $FILEDIR $NUMFILES $KFOLDS $INDEX
+module load python3
+python3 $FILEDIR/cvGen.py $WRKDIR $FILEDIR $NUMFILES $KFOLDS $INDEX

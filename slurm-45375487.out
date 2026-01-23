@@ -1,0 +1,35 @@
+[INFO] WRKDIR=/scratch.global/and02709/second_python
+[INFO] KFOLDS=5
+[INFO] EPSILON=1
+[INFO] FILEDIR=/scratch.global/and02709/second_python
+[INFO] PWRDATA=/scratch.global/and02709/second_python/pwr_data
+[INFO] SLURM_JOB_ID=45375487
+[INFO] SLURM_SUBMIT_DIR=/scratch.global/and02709/second_python
+[SUBMIT] pwr_index_file
+  script: --wait /scratch.global/and02709/second_python/pwr_index_file.sh /scratch.global/and02709/second_python /scratch.global/and02709/second_python
+  out:    /scratch.global/and02709/second_python/OUT/pwr_index_file_%A_%a.out
+  err:    /scratch.global/and02709/second_python/ERR/pwr_index_file_%A_%a.err
+  extra:  <none>
+[CMD] sbatch --parsable --chdir=/scratch.global/and02709/second_python/pwr_data --time=1:00:00 --mem=4GB --cpus-per-task=1 -N 1 --output=/scratch.global/and02709/second_python/OUT/pwr_index_file_%A_%a.out --error=/scratch.global/and02709/second_python/ERR/pwr_index_file_%A_%a.err  --wait /scratch.global/and02709/second_python/pwr_index_file.sh /scratch.global/and02709/second_python /scratch.global/and02709/second_python
+sbatch: Setting account: gdc
+[JOB] pwr_index_file -> 45375488
+[SCONTROL] StdOut=/scratch.global/and02709/second_python/OUT/pwr_index_file_45375488_4294967294.out
+[SCONTROL] StdErr=/scratch.global/and02709/second_python/ERR/pwr_index_file_45375488_4294967294.err
+[INFO] NINDEX=6806 CHUNK_SIZE=100 NJOBS=69
+[SUBMIT] pwr_setup
+  script: --wait /scratch.global/and02709/second_python/pwr_setup.sh /scratch.global/and02709/second_python /scratch.global/and02709/second_python
+  out:    /scratch.global/and02709/second_python/OUT/pwr_setup_%A_%a.out
+  err:    /scratch.global/and02709/second_python/ERR/pwr_setup_%A_%a.err
+  extra:  <none>
+[CMD] sbatch --parsable --chdir=/scratch.global/and02709/second_python/pwr_data --time=1:00:00 --mem=16GB --cpus-per-task=2 -N 1 --output=/scratch.global/and02709/second_python/OUT/pwr_setup_%A_%a.out --error=/scratch.global/and02709/second_python/ERR/pwr_setup_%A_%a.err  --wait /scratch.global/and02709/second_python/pwr_setup.sh /scratch.global/and02709/second_python /scratch.global/and02709/second_python
+sbatch: Setting account: gdc
+[JOB] pwr_setup -> 45375727
+[SCONTROL] StdOut=/scratch.global/and02709/second_python/OUT/pwr_setup_45375727_4294967294.out
+[SCONTROL] StdErr=/scratch.global/and02709/second_python/ERR/pwr_setup_45375727_4294967294.err
+[SUBMIT] pwr_sub_python
+  script: --array=1-69 --wait /scratch.global/and02709/second_python/pwr_sub_python.sh /scratch.global/and02709/second_python 100 6806 /scratch.global/and02709/second_python
+  out:    /scratch.global/and02709/second_python/OUT/pwr_sub_python_%A_%a.out
+  err:    /scratch.global/and02709/second_python/ERR/pwr_sub_python_%A_%a.err
+  extra:  <none>
+[CMD] sbatch --parsable --chdir=/scratch.global/and02709/second_python/pwr_data --time=10:00:00 --mem=16GB --cpus-per-task=2 -N 1 --output=/scratch.global/and02709/second_python/OUT/pwr_sub_python_%A_%a.out --error=/scratch.global/and02709/second_python/ERR/pwr_sub_python_%A_%a.err  --array=1-69 --wait /scratch.global/and02709/second_python/pwr_sub_python.sh /scratch.global/and02709/second_python 100 6806 /scratch.global/and02709/second_python
+sbatch: Setting account: gdc

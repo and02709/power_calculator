@@ -1,0 +1,23 @@
+[INFO] WRKDIR=/users/0/and02709/power_calculator/new_work/python_refactor
+[INFO] KFOLDS=5
+[INFO] EPSILON=1
+[INFO] FILEDIR=/users/0/and02709/power_calculator/new_work/python_refactor
+[INFO] PWD=/users/0/and02709/power_calculator/new_work/python_refactor
+[INFO] SLURM_JOB_ID=45046062
+[STEP 1] pwr_index_file
+Submitted batch job 45046066
+[INFO] NINDEX=6806
+[INFO] CHUNK_SIZE=100
+[INFO] NJOBS=69
+[STEP 5] pwr_setup
+Submitted batch job 45046103
+[STEP 6] pwr_sub_python (array 1-69)
+Submitted batch job 45046134
+[STEP 7] combine_data
+Submitted batch job 45046285
+[INFO] full_*_cov.npy count=10
+[STEP 8] ridge
+Submitted batch job 45046297
+[INFO] NUMFILES (unique sizes)=10
+[STEP 10] cvGen (array 1-10)
+Submitted batch job 45046302

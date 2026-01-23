@@ -1,0 +1,354 @@
+[INFO] WRKDIR=/scratch.global/and02709/second_python
+[INFO] KFOLDS=5
+[INFO] EPSILON=1
+[INFO] FILEDIR=/scratch.global/and02709/python_refactor
+[INFO] PWRDATA=/scratch.global/and02709/second_python/pwr_data
+[INFO] SLURM_JOB_ID=45373237
+[INFO] SLURM_SUBMIT_DIR=/scratch.global/and02709/second_python
+[SUBMIT] pwr_index_file
+  script: --wait /scratch.global/and02709/python_refactor/pwr_index_file.sh /scratch.global/and02709/second_python /scratch.global/and02709/python_refactor
+  out:    /scratch.global/and02709/second_python/OUT/pwr_index_file_%A_%a.out
+  err:    /scratch.global/and02709/second_python/ERR/pwr_index_file_%A_%a.err
+  extra:  <none>
+[CMD] sbatch --parsable --chdir=/scratch.global/and02709/second_python/pwr_data --time=1:00:00 --mem=4GB --cpus-per-task=1 -N 1 --output=/scratch.global/and02709/second_python/OUT/pwr_index_file_%A_%a.out --error=/scratch.global/and02709/second_python/ERR/pwr_index_file_%A_%a.err  --wait /scratch.global/and02709/python_refactor/pwr_index_file.sh /scratch.global/and02709/second_python /scratch.global/and02709/python_refactor
+sbatch: Setting account: gdc
+[JOB] pwr_index_file -> 45373247
+[SCONTROL] StdOut=/scratch.global/and02709/second_python/OUT/pwr_index_file_45373247_4294967294.out
+[SCONTROL] StdErr=/scratch.global/and02709/second_python/ERR/pwr_index_file_45373247_4294967294.err
+[INFO] NINDEX=6806 CHUNK_SIZE=100 NJOBS=69
+[SUBMIT] pwr_setup
+  script: --wait /scratch.global/and02709/python_refactor/pwr_setup.sh /scratch.global/and02709/second_python /scratch.global/and02709/python_refactor
+  out:    /scratch.global/and02709/second_python/OUT/pwr_setup_%A_%a.out
+  err:    /scratch.global/and02709/second_python/ERR/pwr_setup_%A_%a.err
+  extra:  <none>
+[CMD] sbatch --parsable --chdir=/scratch.global/and02709/second_python/pwr_data --time=1:00:00 --mem=16GB --cpus-per-task=2 -N 1 --output=/scratch.global/and02709/second_python/OUT/pwr_setup_%A_%a.out --error=/scratch.global/and02709/second_python/ERR/pwr_setup_%A_%a.err  --wait /scratch.global/and02709/python_refactor/pwr_setup.sh /scratch.global/and02709/second_python /scratch.global/and02709/python_refactor
+sbatch: Setting account: gdc
+[JOB] pwr_setup -> 45373267
+[SCONTROL] StdOut=/scratch.global/and02709/second_python/OUT/pwr_setup_45373267_4294967294.out
+[SCONTROL] StdErr=/scratch.global/and02709/second_python/ERR/pwr_setup_45373267_4294967294.err
+[SUBMIT] pwr_sub_python
+  script: --array=1-69 --wait /scratch.global/and02709/python_refactor/pwr_sub_python.sh /scratch.global/and02709/second_python 100 6806 /scratch.global/and02709/python_refactor
+  out:    /scratch.global/and02709/second_python/OUT/pwr_sub_python_%A_%a.out
+  err:    /scratch.global/and02709/second_python/ERR/pwr_sub_python_%A_%a.err
+  extra:  <none>
+[CMD] sbatch --parsable --chdir=/scratch.global/and02709/second_python/pwr_data --time=10:00:00 --mem=16GB --cpus-per-task=2 -N 1 --output=/scratch.global/and02709/second_python/OUT/pwr_sub_python_%A_%a.out --error=/scratch.global/and02709/second_python/ERR/pwr_sub_python_%A_%a.err  --array=1-69 --wait /scratch.global/and02709/python_refactor/pwr_sub_python.sh /scratch.global/and02709/second_python 100 6806 /scratch.global/and02709/python_refactor
+sbatch: Setting account: gdc
+[JOB] pwr_sub_python -> 45373272
+[SCONTROL] StdOut=/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_69.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_68.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_67.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_66.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_65.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_64.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_63.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_62.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_61.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_60.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_59.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_58.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_57.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_56.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_55.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_54.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_53.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_52.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_51.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_50.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_49.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_48.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_47.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_46.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_45.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_44.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_43.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_42.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_41.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_40.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_39.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_38.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_37.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_36.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_35.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_34.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_33.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_32.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_31.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_30.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_29.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_28.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_27.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_26.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_25.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_24.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_23.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_22.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_21.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_20.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_19.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_18.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_17.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_16.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_15.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_14.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_13.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_12.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_11.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_10.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_9.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_8.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_7.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_6.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_5.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_4.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_3.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_2.out
+/scratch.global/and02709/second_python/OUT/pwr_sub_python_45373272_1.out
+[SCONTROL] StdErr=/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_69.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_68.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_67.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_66.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_65.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_64.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_63.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_62.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_61.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_60.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_59.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_58.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_57.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_56.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_55.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_54.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_53.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_52.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_51.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_50.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_49.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_48.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_47.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_46.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_45.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_44.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_43.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_42.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_41.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_40.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_39.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_38.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_37.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_36.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_35.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_34.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_33.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_32.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_31.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_30.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_29.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_28.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_27.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_26.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_25.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_24.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_23.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_22.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_21.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_20.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_19.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_18.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_17.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_16.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_15.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_14.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_13.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_12.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_11.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_10.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_9.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_8.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_7.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_6.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_5.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_4.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_3.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_2.err
+/scratch.global/and02709/second_python/ERR/pwr_sub_python_45373272_1.err
+[SUBMIT] combine_data
+  script: --wait /scratch.global/and02709/python_refactor/combine_data.sh /scratch.global/and02709/second_python /scratch.global/and02709/python_refactor
+  out:    /scratch.global/and02709/second_python/OUT/combine_data_%A_%a.out
+  err:    /scratch.global/and02709/second_python/ERR/combine_data_%A_%a.err
+  extra:  <none>
+[CMD] sbatch --parsable --chdir=/scratch.global/and02709/second_python/pwr_data --time=1:00:00 --mem=64GB --cpus-per-task=4 -N 1 --output=/scratch.global/and02709/second_python/OUT/combine_data_%A_%a.out --error=/scratch.global/and02709/second_python/ERR/combine_data_%A_%a.err  --wait /scratch.global/and02709/python_refactor/combine_data.sh /scratch.global/and02709/second_python /scratch.global/and02709/python_refactor
+sbatch: Setting account: gdc
+[JOB] combine_data -> 45373349
+[SCONTROL] StdOut=/scratch.global/and02709/second_python/OUT/combine_data_45373349_4294967294.out
+[SCONTROL] StdErr=/scratch.global/and02709/second_python/ERR/combine_data_45373349_4294967294.err
+[INFO] full_*_cov.npy count=10
+[SUBMIT] ridge
+  script: --wait /scratch.global/and02709/python_refactor/ridge.sh /scratch.global/and02709/second_python /scratch.global/and02709/python_refactor
+  out:    /scratch.global/and02709/second_python/OUT/ridge_%A_%a.out
+  err:    /scratch.global/and02709/second_python/ERR/ridge_%A_%a.err
+  extra:  <none>
+[CMD] sbatch --parsable --chdir=/scratch.global/and02709/second_python/pwr_data --time=8:00:00 --mem=64GB --cpus-per-task=2 -N 1 --output=/scratch.global/and02709/second_python/OUT/ridge_%A_%a.out --error=/scratch.global/and02709/second_python/ERR/ridge_%A_%a.err  --wait /scratch.global/and02709/python_refactor/ridge.sh /scratch.global/and02709/second_python /scratch.global/and02709/python_refactor
+sbatch: Setting account: gdc
+[JOB] ridge -> 45373384
+[SCONTROL] StdOut=/scratch.global/and02709/second_python/OUT/ridge_45373384_4294967294.out
+[SCONTROL] StdErr=/scratch.global/and02709/second_python/ERR/ridge_45373384_4294967294.err
+[INFO] NUMFILES=10
+[SUBMIT] cvGen
+  script: --array=1-10 --wait /scratch.global/and02709/python_refactor/cvGen.sh /scratch.global/and02709/second_python /scratch.global/and02709/python_refactor 10 5
+  out:    /scratch.global/and02709/second_python/OUT/cvGen_%A_%a.out
+  err:    /scratch.global/and02709/second_python/ERR/cvGen_%A_%a.err
+  extra:  <none>
+[CMD] sbatch --parsable --chdir=/scratch.global/and02709/second_python/pwr_data --time=1:00:00 --mem=16GB --cpus-per-task=2 -N 1 --output=/scratch.global/and02709/second_python/OUT/cvGen_%A_%a.out --error=/scratch.global/and02709/second_python/ERR/cvGen_%A_%a.err  --array=1-10 --wait /scratch.global/and02709/python_refactor/cvGen.sh /scratch.global/and02709/second_python /scratch.global/and02709/python_refactor 10 5
+sbatch: Setting account: gdc
+[JOB] cvGen -> 45373406
+[SCONTROL] StdOut=/scratch.global/and02709/second_python/OUT/cvGen_45373406_10.out
+/scratch.global/and02709/second_python/OUT/cvGen_45373406_9.out
+/scratch.global/and02709/second_python/OUT/cvGen_45373406_8.out
+/scratch.global/and02709/second_python/OUT/cvGen_45373406_7.out
+/scratch.global/and02709/second_python/OUT/cvGen_45373406_6.out
+/scratch.global/and02709/second_python/OUT/cvGen_45373406_5.out
+/scratch.global/and02709/second_python/OUT/cvGen_45373406_4.out
+/scratch.global/and02709/second_python/OUT/cvGen_45373406_3.out
+/scratch.global/and02709/second_python/OUT/cvGen_45373406_2.out
+/scratch.global/and02709/second_python/OUT/cvGen_45373406_1.out
+[SCONTROL] StdErr=/scratch.global/and02709/second_python/ERR/cvGen_45373406_10.err
+/scratch.global/and02709/second_python/ERR/cvGen_45373406_9.err
+/scratch.global/and02709/second_python/ERR/cvGen_45373406_8.err
+/scratch.global/and02709/second_python/ERR/cvGen_45373406_7.err
+/scratch.global/and02709/second_python/ERR/cvGen_45373406_6.err
+/scratch.global/and02709/second_python/ERR/cvGen_45373406_5.err
+/scratch.global/and02709/second_python/ERR/cvGen_45373406_4.err
+/scratch.global/and02709/second_python/ERR/cvGen_45373406_3.err
+/scratch.global/and02709/second_python/ERR/cvGen_45373406_2.err
+/scratch.global/and02709/second_python/ERR/cvGen_45373406_1.err
+[SUBMIT] setupCVmetrics
+  script: --wait /scratch.global/and02709/python_refactor/setupCVmetrics.sh /scratch.global/and02709/second_python /scratch.global/and02709/python_refactor
+  out:    /scratch.global/and02709/second_python/OUT/setupCVmetrics_%A_%a.out
+  err:    /scratch.global/and02709/second_python/ERR/setupCVmetrics_%A_%a.err
+  extra:  <none>
+[CMD] sbatch --parsable --chdir=/scratch.global/and02709/second_python/pwr_data --time=1:00:00 --mem=16GB --cpus-per-task=2 -N 1 --output=/scratch.global/and02709/second_python/OUT/setupCVmetrics_%A_%a.out --error=/scratch.global/and02709/second_python/ERR/setupCVmetrics_%A_%a.err  --wait /scratch.global/and02709/python_refactor/setupCVmetrics.sh /scratch.global/and02709/second_python /scratch.global/and02709/python_refactor
+sbatch: Setting account: gdc
+[JOB] setupCVmetrics -> 45373563
+[SCONTROL] StdOut=/scratch.global/and02709/second_python/OUT/setupCVmetrics_45373563_4294967294.out
+[SCONTROL] StdErr=/scratch.global/and02709/second_python/ERR/setupCVmetrics_45373563_4294967294.err
+[INFO] NUMFFILES=50
+[SUBMIT] cv
+  script: --array=1-50 --wait /scratch.global/and02709/python_refactor/cv.sh /scratch.global/and02709/second_python /scratch.global/and02709/python_refactor 10 5 1
+  out:    /scratch.global/and02709/second_python/OUT/cv_%A_%a.out
+  err:    /scratch.global/and02709/second_python/ERR/cv_%A_%a.err
+  extra:  <none>
+[CMD] sbatch --parsable --chdir=/scratch.global/and02709/second_python/pwr_data --time=2:00:00 --mem=32GB --cpus-per-task=2 -N 1 --output=/scratch.global/and02709/second_python/OUT/cv_%A_%a.out --error=/scratch.global/and02709/second_python/ERR/cv_%A_%a.err  --array=1-50 --wait /scratch.global/and02709/python_refactor/cv.sh /scratch.global/and02709/second_python /scratch.global/and02709/python_refactor 10 5 1
+sbatch: Setting account: gdc
+[JOB] cv -> 45373671
+[SCONTROL] StdOut=/scratch.global/and02709/second_python/OUT/cv_45373671_50.out
+/scratch.global/and02709/second_python/OUT/cv_45373671_49.out
+/scratch.global/and02709/second_python/OUT/cv_45373671_48.out
+/scratch.global/and02709/second_python/OUT/cv_45373671_47.out
+/scratch.global/and02709/second_python/OUT/cv_45373671_46.out
+/scratch.global/and02709/second_python/OUT/cv_45373671_45.out
+/scratch.global/and02709/second_python/OUT/cv_45373671_44.out
+/scratch.global/and02709/second_python/OUT/cv_45373671_43.out
+/scratch.global/and02709/second_python/OUT/cv_45373671_42.out
+/scratch.global/and02709/second_python/OUT/cv_45373671_41.out
+/scratch.global/and02709/second_python/OUT/cv_45373671_40.out
+/scratch.global/and02709/second_python/OUT/cv_45373671_39.out
+/scratch.global/and02709/second_python/OUT/cv_45373671_38.out
+/scratch.global/and02709/second_python/OUT/cv_45373671_37.out
+/scratch.global/and02709/second_python/OUT/cv_45373671_36.out
+/scratch.global/and02709/second_python/OUT/cv_45373671_35.out
+/scratch.global/and02709/second_python/OUT/cv_45373671_34.out
+/scratch.global/and02709/second_python/OUT/cv_45373671_33.out
+/scratch.global/and02709/second_python/OUT/cv_45373671_32.out
+/scratch.global/and02709/second_python/OUT/cv_45373671_31.out
+/scratch.global/and02709/second_python/OUT/cv_45373671_30.out
+/scratch.global/and02709/second_python/OUT/cv_45373671_29.out
+/scratch.global/and02709/second_python/OUT/cv_45373671_28.out
+/scratch.global/and02709/second_python/OUT/cv_45373671_27.out
+/scratch.global/and02709/second_python/OUT/cv_45373671_26.out
+/scratch.global/and02709/second_python/OUT/cv_45373671_25.out
+/scratch.global/and02709/second_python/OUT/cv_45373671_24.out
+/scratch.global/and02709/second_python/OUT/cv_45373671_23.out
+/scratch.global/and02709/second_python/OUT/cv_45373671_22.out
+/scratch.global/and02709/second_python/OUT/cv_45373671_21.out
+/scratch.global/and02709/second_python/OUT/cv_45373671_20.out
+/scratch.global/and02709/second_python/OUT/cv_45373671_19.out
+/scratch.global/and02709/second_python/OUT/cv_45373671_18.out
+/scratch.global/and02709/second_python/OUT/cv_45373671_17.out
+/scratch.global/and02709/second_python/OUT/cv_45373671_16.out
+/scratch.global/and02709/second_python/OUT/cv_45373671_15.out
+/scratch.global/and02709/second_python/OUT/cv_45373671_14.out
+/scratch.global/and02709/second_python/OUT/cv_45373671_13.out
+/scratch.global/and02709/second_python/OUT/cv_45373671_12.out
+/scratch.global/and02709/second_python/OUT/cv_45373671_11.out
+/scratch.global/and02709/second_python/OUT/cv_45373671_10.out
+/scratch.global/and02709/second_python/OUT/cv_45373671_9.out
+/scratch.global/and02709/second_python/OUT/cv_45373671_8.out
+/scratch.global/and02709/second_python/OUT/cv_45373671_7.out
+/scratch.global/and02709/second_python/OUT/cv_45373671_6.out
+/scratch.global/and02709/second_python/OUT/cv_45373671_5.out
+/scratch.global/and02709/second_python/OUT/cv_45373671_4.out
+/scratch.global/and02709/second_python/OUT/cv_45373671_3.out
+/scratch.global/and02709/second_python/OUT/cv_45373671_2.out
+/scratch.global/and02709/second_python/OUT/cv_45373671_1.out
+[SCONTROL] StdErr=/scratch.global/and02709/second_python/ERR/cv_45373671_50.err
+/scratch.global/and02709/second_python/ERR/cv_45373671_49.err
+/scratch.global/and02709/second_python/ERR/cv_45373671_48.err
+/scratch.global/and02709/second_python/ERR/cv_45373671_47.err
+/scratch.global/and02709/second_python/ERR/cv_45373671_46.err
+/scratch.global/and02709/second_python/ERR/cv_45373671_45.err
+/scratch.global/and02709/second_python/ERR/cv_45373671_44.err
+/scratch.global/and02709/second_python/ERR/cv_45373671_43.err
+/scratch.global/and02709/second_python/ERR/cv_45373671_42.err
+/scratch.global/and02709/second_python/ERR/cv_45373671_41.err
+/scratch.global/and02709/second_python/ERR/cv_45373671_40.err
+/scratch.global/and02709/second_python/ERR/cv_45373671_39.err
+/scratch.global/and02709/second_python/ERR/cv_45373671_38.err
+/scratch.global/and02709/second_python/ERR/cv_45373671_37.err
+/scratch.global/and02709/second_python/ERR/cv_45373671_36.err
+/scratch.global/and02709/second_python/ERR/cv_45373671_35.err
+/scratch.global/and02709/second_python/ERR/cv_45373671_34.err
+/scratch.global/and02709/second_python/ERR/cv_45373671_33.err
+/scratch.global/and02709/second_python/ERR/cv_45373671_32.err
+/scratch.global/and02709/second_python/ERR/cv_45373671_31.err
+/scratch.global/and02709/second_python/ERR/cv_45373671_30.err
+/scratch.global/and02709/second_python/ERR/cv_45373671_29.err
+/scratch.global/and02709/second_python/ERR/cv_45373671_28.err
+/scratch.global/and02709/second_python/ERR/cv_45373671_27.err
+/scratch.global/and02709/second_python/ERR/cv_45373671_26.err
+/scratch.global/and02709/second_python/ERR/cv_45373671_25.err
+/scratch.global/and02709/second_python/ERR/cv_45373671_24.err
+/scratch.global/and02709/second_python/ERR/cv_45373671_23.err
+/scratch.global/and02709/second_python/ERR/cv_45373671_22.err
+/scratch.global/and02709/second_python/ERR/cv_45373671_21.err
+/scratch.global/and02709/second_python/ERR/cv_45373671_20.err
+/scratch.global/and02709/second_python/ERR/cv_45373671_19.err
+/scratch.global/and02709/second_python/ERR/cv_45373671_18.err
+/scratch.global/and02709/second_python/ERR/cv_45373671_17.err
+/scratch.global/and02709/second_python/ERR/cv_45373671_16.err
+/scratch.global/and02709/second_python/ERR/cv_45373671_15.err
+/scratch.global/and02709/second_python/ERR/cv_45373671_14.err
+/scratch.global/and02709/second_python/ERR/cv_45373671_13.err
+/scratch.global/and02709/second_python/ERR/cv_45373671_12.err
+/scratch.global/and02709/second_python/ERR/cv_45373671_11.err
+/scratch.global/and02709/second_python/ERR/cv_45373671_10.err
+/scratch.global/and02709/second_python/ERR/cv_45373671_9.err
+/scratch.global/and02709/second_python/ERR/cv_45373671_8.err
+/scratch.global/and02709/second_python/ERR/cv_45373671_7.err
+/scratch.global/and02709/second_python/ERR/cv_45373671_6.err
+/scratch.global/and02709/second_python/ERR/cv_45373671_5.err
+/scratch.global/and02709/second_python/ERR/cv_45373671_4.err
+/scratch.global/and02709/second_python/ERR/cv_45373671_3.err
+/scratch.global/and02709/second_python/ERR/cv_45373671_2.err
+/scratch.global/and02709/second_python/ERR/cv_45373671_1.err
+[SUBMIT] final_data
+  script: --wait /scratch.global/and02709/python_refactor/final_data.sh /scratch.global/and02709/second_python /scratch.global/and02709/python_refactor
+  out:    /scratch.global/and02709/second_python/OUT/final_data_%A_%a.out
+  err:    /scratch.global/and02709/second_python/ERR/final_data_%A_%a.err
+  extra:  <none>
+[CMD] sbatch --parsable --chdir=/scratch.global/and02709/second_python/pwr_data --time=12:00:00 --mem=96GB --cpus-per-task=8 -N 1 --output=/scratch.global/and02709/second_python/OUT/final_data_%A_%a.out --error=/scratch.global/and02709/second_python/ERR/final_data_%A_%a.err  --wait /scratch.global/and02709/python_refactor/final_data.sh /scratch.global/and02709/second_python /scratch.global/and02709/python_refactor
+sbatch: Setting account: gdc
+[JOB] final_data -> 45373932
+[SCONTROL] StdOut=/scratch.global/and02709/second_python/OUT/final_data_45373932_4294967294.out
+[SCONTROL] StdErr=/scratch.global/and02709/second_python/ERR/final_data_45373932_4294967294.err
+[DONE] manifest=/scratch.global/and02709/second_python/OUT/job_manifest.tsv
