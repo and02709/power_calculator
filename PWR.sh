@@ -12,16 +12,19 @@
 set -euo pipefail
 
 WRKDIR=$1
-KFOLDS=$2
-EPSILON=$3
-FILEDIR=/scratch.global/and02709/second_python
+PCONNDIR=$2
+PCONNREF=$3
+SINGLETEMP=$4
+NUMTEMP=$5
+FILEDIR=$6
+KFOLDS=$7
+EPSILON=$8
 
 OUTDIR="$WRKDIR/OUT"
 ERRDIR="$WRKDIR/ERR"
 PWRDATA="$WRKDIR/pwr_data"
 
-mkdir -p "$OUTDIR" "$ERRDIR" "$PWRDATA"
-
+echo "File Checks"
 echo "[INFO] WRKDIR=$WRKDIR"
 echo "[INFO] KFOLDS=$KFOLDS"
 echo "[INFO] EPSILON=$EPSILON"
@@ -30,18 +33,28 @@ echo "[INFO] PWRDATA=$PWRDATA"
 echo "[INFO] SLURM_JOB_ID=${SLURM_JOB_ID:-<none>}"
 echo "[INFO] SLURM_SUBMIT_DIR=${SLURM_SUBMIT_DIR:-<none>}"
 
-module load R/4.4.0-openblas-rocky8
-cd "$PWRDATA"
+if [[ "$SINGLETEMP" != "0" && "$SINGLETEMP" != "1" ]]; then
+  echo "[FATAL] SINGLETEMP must be 0 or 1" >&2
+  exit 1
+fi
+
+if ! [[ "${NUMTEMP:-}" =~ ^[0-9]+$ ]] || (( NUMTEMP < 1 )); then
+  echo "[FATAL] NUMTEMP must be an integer >= 1 (got: '${NUMTEMP:-unset}')" >&2
+  exit 1
+fi
 
 # EPSILON check (requires bc)
 if ! [[ "$EPSILON" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
   echo "[FATAL] EPSILON must be numeric" >&2
   exit 1
 fi
-if (( $(echo "$EPSILON <= 0" | bc -l) )); then
+if (( $(echo "$EPSILON < 0" | bc -l) )); then
   echo "[FATAL] EPSILON must be > 0" >&2
   exit 1
 fi
+
+mkdir -p "$OUTDIR" "$ERRDIR" "$PWRDATA"
+cd "$PWRDATA"
 
 manifest="$OUTDIR/job_manifest.tsv"
 echo -e "step\tjobid\tstdout\tstderr" > "$manifest"
@@ -104,8 +117,8 @@ submit() {
 }
 
 # Step 1
-submit "pwr_index_file" "1:00:00" "4GB" "1" -- --wait \
-  "$FILEDIR/pwr_index_file.sh" "$WRKDIR" "$FILEDIR"
+submit "pwr_setup" "1:00:00" "16GB" "2" -- --wait \
+  "$FILEDIR/pwr_setup.sh" "$WRKDIR" "$FILEDIR"
 
 if [ ! -s "$PWRDATA/pwr_index_file.txt" ]; then
   echo "[FATAL] pwr_index_file.txt missing/empty" >&2
@@ -118,15 +131,18 @@ CHUNK_SIZE=100
 NJOBS=$(( (NINDEX + CHUNK_SIZE - 1) / CHUNK_SIZE ))
 echo "[INFO] NINDEX=$NINDEX CHUNK_SIZE=$CHUNK_SIZE NJOBS=$NJOBS"
 
-# Step 5
-submit "pwr_setup" "1:00:00" "16GB" "2" -- --wait \
-  "$FILEDIR/pwr_setup.sh" "$WRKDIR" "$FILEDIR"
+if [[ "$SINGLETEMP" == "1" ]]; then
+    echo "Running in single-temp mode"
+    submit "pwr_sub_python_single" "10:00:00" "16GB" "2" -- --array=1-"$NJOBS" --wait \
+    "$FILEDIR/pwr_sub_python_single.sh" "$WRKDIR" "$CHUNK_SIZE" "$NINDEX" "$FILEDIR"
+else
+    echo "Running in multi-temp mode"
+    # Step 2 (array)
+    submit "pwr_sub_python" "10:00:00" "16GB" "2" -- --array=1-"$NJOBS" --wait \
+    "$FILEDIR/pwr_sub_python.sh" "$WRKDIR" "$CHUNK_SIZE" "$NINDEX" "$FILEDIR" "$PCONNDIR" "$PCONNREF" "$NUMTEMP"
+fi
 
-# Step 6 (array)
-submit "pwr_sub_python" "10:00:00" "16GB" "2" -- --array=1-"$NJOBS" --wait \
-  "$FILEDIR/pwr_sub_python.sh" "$WRKDIR" "$CHUNK_SIZE" "$NINDEX" "$FILEDIR"
-
-# Step 7
+# Step 3
 submit "combine_data" "1:00:00" "64GB" "4" -- --wait \
   "$FILEDIR/combine_data.sh" "$WRKDIR" "$FILEDIR"
 
@@ -138,7 +154,7 @@ if [ "$N_FULL_COV" -le 0 ]; then
   exit 1
 fi
 
-# Step 8
+# Step 4
 submit "ridge" "8:00:00" "64GB" "2" -- --wait \
   "$FILEDIR/ridge.sh" "$WRKDIR" "$FILEDIR"
 
@@ -153,11 +169,11 @@ if [ "$NUMFILES" -le 0 ]; then
   exit 1
 fi
 
-# Step 10
+# Step 5
 submit "cvGen" "1:00:00" "16GB" "2" -- --array=1-"$NUMFILES" --wait \
   "$FILEDIR/cvGen.sh" "$WRKDIR" "$FILEDIR" "$NUMFILES" "$KFOLDS"
 
-# Step 11
+# Step 6
 submit "setupCVmetrics" "1:00:00" "16GB" "2" -- --wait \
   "$FILEDIR/setupCVmetrics.sh" "$WRKDIR" "$FILEDIR"
 
@@ -170,11 +186,11 @@ if [ "$NUMFFILES" -le 0 ]; then
   exit 1
 fi
 
-# Step 13 (array)
+# Step 7 (array)
 submit "cv" "2:00:00" "32GB" "2" -- --array=1-"$NUMFFILES" --wait \
   "$FILEDIR/cv.sh" "$WRKDIR" "$FILEDIR" "$NUMFILES" "$KFOLDS" "$EPSILON"
 
-# Step 14
+# Step 8
 submit "final_data" "12:00:00" "96GB" "8" -- --wait \
   "$FILEDIR/final_data.sh" "$WRKDIR" "$FILEDIR"
 

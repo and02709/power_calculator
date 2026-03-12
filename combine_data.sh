@@ -16,9 +16,8 @@ FILEDIR="$2"
 
 cd "$WRKDIR/pwr_data"
 
-module load conda
-source "$(conda info --base)/etc/profile.d/conda.sh"
-conda activate pwr_py
+source /projects/standard/faird/shared/code/external/envs/miniconda3/load_miniconda3.sh
+conda activate FC_stability
 
 python "$FILEDIR/combine_data.py" "$WRKDIR" "$FILEDIR"
 # If you want RDS outputs too (requires pyreadr in env):

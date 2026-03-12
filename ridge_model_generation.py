@@ -26,6 +26,7 @@ def main():
 
     args = parser.parse_args()
 
+    fldir = Path(args.FILEDIR)
     wrkdir = Path(args.WRKDIR)
     out_dir = wrkdir / "pwr_data"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -37,7 +38,7 @@ def main():
         if pheno == "" or pheno.lower() == "default":
             pheno = None
 
-    haufe_path = wrkdir / "haufe.csv"
+    haufe_path = fldir / "haufe.csv"
     if not haufe_path.exists():
         print(f"[FATAL] haufe.csv not found at: {haufe_path}", file=sys.stderr)
         sys.exit(1)
