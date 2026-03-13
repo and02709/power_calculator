@@ -122,14 +122,14 @@ def main():
     w, v = np.linalg.eigh(avg_mat)
     avg_mat_psd = (v * np.maximum(w, 1e-12)) @ v.T
     np.fill_diagonal(avg_mat_psd, 1.0)
-    
+
     eig1 = EigSplit(avg_mat_psd)
-    eig2 = None if args.use_one_target else eig1 # Using same avg for both targets as default
+    eig2 = None if args.use_one_target else eig1  # Using same avg for both targets as default
 
     for i in range(len(chunk_rows)):
         sample_count, dataset_size = int(chunk_rows.iloc[i, 1]), int(chunk_rows.iloc[i, 2])
         rng = np.random.default_rng(args.seed + (args.START + i))
-        x_aug = build_x_aug_from_rng(1, args.use_one_target, rng)  # always 1 subject
+        x_aug = build_x_aug_from_rng(args.NREP, args.use_one_target, rng)
 
         m_cov, m_cor, m_z = simulate_iteration(eig1, eig2, x_aug, args.n_time, rng, args.z_clip)
 
