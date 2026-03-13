@@ -135,12 +135,12 @@ echo "[INFO] NINDEX=$NINDEX CHUNK_SIZE=$CHUNK_SIZE NJOBS=$NJOBS"
 if [[ "$SINGLETEMP" == "1" ]]; then
     echo "Running in single-temp mode"
     submit "pwr_sub_python_single" "10:00:00" "16GB" "2" -- --array=1-"$NJOBS" --wait \
-    "$FILEDIR/pwr_sub_python_single.sh" "$WRKDIR" "$CHUNK_SIZE" "$NINDEX" "$FILEDIR" "$PCONNDIR" "$PCONNREF"
+    "$FILEDIR/pwr_sub_python_single.sh" "$WRKDIR" "$CHUNK_SIZE" "$NINDEX" "$FILEDIR" "$PCONNDIR" "$PCONNREF" "$NREP"
 else
     echo "Running in multi-temp mode"
     # Step 2 (array)
     submit "pwr_sub_python" "10:00:00" "16GB" "2" -- --array=1-"$NJOBS" --wait \
-    "$FILEDIR/pwr_sub_python.sh" "$WRKDIR" "$CHUNK_SIZE" "$NINDEX" "$FILEDIR" "$PCONNDIR" "$PCONNREF" "$NUMTEMP"
+    "$FILEDIR/pwr_sub_python.sh" "$WRKDIR" "$CHUNK_SIZE" "$NINDEX" "$FILEDIR" "$PCONNDIR" "$PCONNREF" "$NUMTEMP" "$NREP"
 fi
 
 # Step 3
