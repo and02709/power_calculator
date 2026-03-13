@@ -105,7 +105,7 @@ def simulate_iteration(eig1, eig2, x_aug, n_time, rng, clip):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("WRKDIR"); ap.add_argument("START", type=int); ap.add_argument("END", type=int)
-    ap.add_argument("FILEDIR"); ap.add_argument("PCONNDIR"); ap.add_argument("PCONNREF")
+    ap.add_argument("FILEDIR"); ap.add_argument("PCONNDIR"); ap.add_argument("PCONNREF"); ap.add_argument("NREP")
     ap.add_argument("UNUSED_ARG")
     ap.add_argument("--seed", type=int, default=0); ap.add_argument("--n_time", type=int, default=1000)
     ap.add_argument("--pconn1"); ap.add_argument("--use_one_target", action="store_true")
