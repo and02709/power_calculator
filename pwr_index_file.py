@@ -2,8 +2,7 @@ import numpy as np
 import pandas as pd
 
 # ---- Input ----
-# sample_sizes = np.array([100, 139, 194, 271, 378, 528, 736, 1027, 1433, 2000])
-sample_sizes = np.array([100, 200, 300, 400, 500])
+sample_sizes = np.array([100, 139, 194, 271, 378, 528, 736, 1027, 1433, 2000])
 
 
 # ---- Replicate R behavior ----
