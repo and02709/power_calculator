@@ -18,6 +18,7 @@ NINDEX="${3}"
 FILEDIR="${4}"
 PCONNDIR="${5}"
 PCONNREF="${6}"
+NREP="${7}"
 TASK_ID="${SLURM_ARRAY_TASK_ID}"
  
 # 2. Define Simulation Parameters
@@ -49,6 +50,7 @@ echo "[INFO] Processing Rows: $START to $END with SEED: $SEED"
     "$FILEDIR" \
     "$PCONNDIR" \
     "$PCONNREF" \
+    "$NREP" \
     "placeholder" \
     --seed "$SEED" \
     --n_time "$N_TIME" \
