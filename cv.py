@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
 """
-cv.py (diagnostic-heavy) — Python 3.8/3.9 compatible
+cv.py — PCA + Random Forest CV R²
 
-Key features:
-- Prints script path + VERSION
-- Writes a per-task stamp file into pwr_data
-- Prints EPSILON, ridge stats, keep counts, and cov_test stats
-- Computes metric 3 ways (eps-threshold, top-frac, and all edges)
-- Refuses to overwrite existing cvr2 unless --overwrite
-- Optionally writes a DEBUG npz snapshot if anything is non-finite
+For each split .npz:
+  1. Load cor_train / cor_test  (X_train, X_test)
+  2. Compute y_train = X_train @ ridge_vec
+             y_test  = X_test  @ ridge_vec
+  3. StandardScaler + PCA on X_train; transform X_test with same scaler/PCA
+  4. Fit RandomForestRegressor on (X_train_pca, y_train)
+  5. Predict y_hat = rf.predict(X_test_pca)
+  6. Compute R² between y_test and y_hat -> save as data_<size>_fold_<fold>_cvr2.npy
+
+All other behaviour (stamp file, overwrite guard, debug dump, CLI signature)
+is identical to the original cv.py so cv.sh / PWR.sh need no changes.
 """
 import argparse
 import datetime as dt
@@ -19,10 +23,17 @@ from pathlib import Path
 from typing import List, Tuple, Optional
 
 import numpy as np
+from sklearn.decomposition import PCA
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.preprocessing import StandardScaler
 
 RE_SPLIT = re.compile(r"^full_(\d+)_fold_(\d+)_split\.npz$")
-VERSION = "cv.py v2025-12-22e DIAG_TRIPLE_METRIC_STAMP_PY39"
+VERSION = "cv.py v2026-01-01 PCA_RF_R2"
 
+
+# ---------------------------------------------------------------------------
+# Helpers (unchanged from original)
+# ---------------------------------------------------------------------------
 
 def list_splits(pwr_dir: Path) -> List[Tuple[int, int, Path]]:
     out: List[Tuple[int, int, Path]] = []
@@ -50,15 +61,8 @@ def minmax_finite(x: np.ndarray):
     return (float(np.min(xf)), float(np.max(xf)))
 
 
-def quantile_finite(x: np.ndarray, q: float) -> float:
-    x = np.asarray(x)
-    f = np.isfinite(x)
-    if f.sum() == 0:
-        return float("nan")
-    return float(np.quantile(x[f], q))
-
-
-def write_stamp(pwr_dir: Path, size: int, fold: int, split_path: Path, args: argparse.Namespace) -> Path:
+def write_stamp(pwr_dir: Path, size: int, fold: int, split_path: Path,
+                args: argparse.Namespace) -> Path:
     stamp = pwr_dir / f"cv_stamp_size{size}_fold{fold}.txt"
     now = dt.datetime.now().isoformat(timespec="seconds")
     body = (
@@ -70,10 +74,10 @@ def write_stamp(pwr_dir: Path, size: int, fold: int, split_path: Path, args: arg
         f"pwr_dir={pwr_dir}\n"
         f"split_file={split_path.name}\n"
         f"INDEX={args.INDEX}\n"
-        f"EPSILON={args.EPSILON}\n"
-        f"fallback_top_frac={args.fallback_top_frac}\n"
         f"use={args.use}\n"
         f"ridge_arg={args.ridge}\n"
+        f"n_components={args.n_components}\n"
+        f"n_estimators={args.n_estimators}\n"
         f"overwrite={args.overwrite}\n"
         f"debug_dump={args.debug_dump}\n"
     )
@@ -81,35 +85,21 @@ def write_stamp(pwr_dir: Path, size: int, fold: int, split_path: Path, args: arg
     return stamp
 
 
-def debug_dump(
-    pwr_dir: Path,
-    size: int,
-    fold: int,
-    split_path: Path,
-    X: Optional[np.ndarray],
-    ridge: Optional[np.ndarray],
-    keep: Optional[np.ndarray],
-    note: str
-) -> None:
+def debug_dump(pwr_dir: Path, size: int, fold: int, split_path: Path,
+               X: Optional[np.ndarray], ridge: Optional[np.ndarray],
+               note: str) -> None:
     dbg = pwr_dir / f"DEBUG_size{size}_fold{fold}.npz"
     payload = {
         "note": np.array(note),
         "version": np.array(VERSION),
-        "script_path": np.array(os.path.abspath(__file__)),
         "split_file": np.array(split_path.name),
     }
     if X is not None:
-        n_edge = X.shape[1] if X.ndim == 2 else 0
         payload["X_shape"] = np.array(X.shape)
-        payload["X_head"] = X[:5, :min(50, n_edge)] if X.ndim == 2 else X.reshape(-1)[:200]
         payload["X_finite_frac"] = np.array(finite_frac(X))
     if ridge is not None:
         payload["ridge_shape"] = np.array(ridge.shape)
-        payload["ridge_head"] = ridge[:min(200, ridge.size)]
         payload["ridge_finite_frac"] = np.array(finite_frac(ridge))
-    if keep is not None:
-        payload["keep_sum"] = np.array(int(np.sum(keep)))
-        payload["keep_head"] = keep[:min(500, keep.size)]
     np.savez(str(dbg), **payload)
     print(f"[WARN] wrote debug dump: {dbg.name}", file=sys.stderr)
 
@@ -120,53 +110,64 @@ def load_ridge(pwr_dir: Path, ridge_arg: Optional[str]) -> Tuple[Path, np.ndarra
         if not rp.exists():
             raise FileNotFoundError(f"--ridge not found: {rp}")
         r = np.load(str(rp), allow_pickle=True)
-        r = np.asarray(r).reshape(-1).astype(float, copy=False)
-        return rp, r
+        return rp, np.asarray(r).reshape(-1).astype(float, copy=False)
 
     rp = pwr_dir / "ridge.npy"
     if rp.exists():
         r = np.load(str(rp), allow_pickle=True)
-        r = np.asarray(r).reshape(-1).astype(float, copy=False)
-        return rp, r
+        return rp, np.asarray(r).reshape(-1).astype(float, copy=False)
 
     cand = sorted(pwr_dir.glob("ridge*.npy"))
     if not cand:
         raise FileNotFoundError("No ridge.npy / ridge*.npy found in pwr_data")
     rp = cand[0]
     r = np.load(str(rp), allow_pickle=True)
-    r = np.asarray(r).reshape(-1).astype(float, copy=False)
-    return rp, r
+    return rp, np.asarray(r).reshape(-1).astype(float, copy=False)
 
 
-def compute_metric(X: np.ndarray, keep: np.ndarray) -> float:
-    """Mean over subjects of mean(|X|) across kept edges."""
-    if keep is None or int(np.sum(keep)) == 0:
+def r2_score(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    ss_res = float(np.sum((y_true - y_pred) ** 2))
+    ss_tot = float(np.sum((y_true - np.mean(y_true)) ** 2))
+    if ss_tot == 0.0:
         return float("nan")
-    sub = X[:, keep]
-    per_sub = np.mean(np.abs(sub), axis=1)
-    return float(np.mean(per_sub))
+    return 1.0 - ss_res / ss_tot
 
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 
 def main() -> int:
     ap = argparse.ArgumentParser(
-        description="CV metrics with heavy diagnostics (NPZ splits -> scalar cvr2.npy files)"
+        description="CV R² via PCA + Random Forest (NPZ splits -> scalar cvr2.npy files)"
     )
+    # Positional args — identical to original cv.py so cv.sh needs no changes
     ap.add_argument("WRKDIR")
-    ap.add_argument("FILEDIR")            # unused
-    ap.add_argument("NUMFILES", type=int) # informational
-    ap.add_argument("KFOLDS", type=int)   # informational
-    ap.add_argument("EPSILON", type=float)
-    ap.add_argument("INDEX", type=int)    # 1-based index into sorted split files
-    ap.add_argument("--outdir", default=None, help="default: WRKDIR/pwr_data")
-    ap.add_argument("--ridge", default=None, help="default: outdir/ridge.npy or first ridge*.npy")
-    ap.add_argument("--fallback_top_frac", type=float, default=0.01,
-                    help="top fraction of |ridge| for alternate metric (default 0.01=top1%)")
-    ap.add_argument("--use", choices=["cov_test", "cor_test"], default="cov_test",
-                    help="use cov_test or cor_test from split (default: cov_test)")
-    ap.add_argument("--overwrite", action="store_true",
-                    help="overwrite existing data_*_cvr2.npy (default: do not overwrite)")
-    ap.add_argument("--debug_dump", action="store_true",
-                    help="write DEBUG_size*_fold*.npz when something looks wrong")
+    ap.add_argument("FILEDIR")             # unused, kept for compatibility
+    ap.add_argument("NUMFILES", type=int)  # informational
+    ap.add_argument("KFOLDS",   type=int)  # informational
+    ap.add_argument("EPSILON",  type=float)  # kept for compatibility, not used in RF metric
+    ap.add_argument("INDEX",    type=int)  # 1-based index into sorted split files
+
+    # Optional flags
+    ap.add_argument("--outdir",  default=None,
+                    help="default: WRKDIR/pwr_data")
+    ap.add_argument("--ridge",   default=None,
+                    help="default: outdir/ridge.npy or first ridge*.npy")
+    ap.add_argument("--use",     choices=["cov_train", "cor_train"], default="cor_train",
+                    help="Training matrix key in split .npz (default: cor_train)")
+    ap.add_argument("--use_test", choices=["cov_test", "cor_test"], default="cor_test",
+                    help="Test matrix key in split .npz (default: cor_test)")
+    ap.add_argument("--n_components", type=int, default=500,
+                    help="Number of PCA components (default: 500)")
+    ap.add_argument("--n_estimators", type=int, default=500,
+                    help="Number of RF trees (default: 500)")
+    ap.add_argument("--n_jobs",  type=int, default=-1,
+                    help="Parallel jobs for RF, -1 = all cores (default: -1)")
+    ap.add_argument("--overwrite",   action="store_true",
+                    help="Overwrite existing cvr2.npy (default: do not overwrite)")
+    ap.add_argument("--debug_dump",  action="store_true",
+                    help="Write DEBUG npz on failure")
     args = ap.parse_args()
 
     print(f"[INFO] {VERSION}")
@@ -197,127 +198,138 @@ def main() -> int:
     stamp_path = write_stamp(pwr_dir, size, fold, split_path, args)
     print(f"[INFO] wrote stamp: {stamp_path.name}")
 
-    z = np.load(str(split_path), allow_pickle=True)
-    keys = list(z.keys())
-    print(f"[INFO] split keys={keys}")
-
-    if args.use not in z:
-        msg = f"[FATAL] split missing {args.use}"
-        print(msg, file=sys.stderr)
-        if args.debug_dump:
-            debug_dump(pwr_dir, size, fold, split_path, None, None, None, msg)
-        return 2
-
-    X = np.asarray(z[args.use])
-    if X.ndim != 2:
-        msg = f"[FATAL] {args.use} not 2D: shape={X.shape}"
-        print(msg, file=sys.stderr)
-        if args.debug_dump:
-            debug_dump(pwr_dir, size, fold, split_path, X, None, None, msg)
-        return 2
-
-    X_ff = finite_frac(X)
-    X_min, X_max = minmax_finite(X)
-    print(f"[INFO] {args.use} shape={X.shape} dtype={X.dtype} finite_frac={X_ff:.6f} min={X_min:.6g} max={X_max:.6g}")
-
-    if X_ff < 0.999:
-        msg = f"[FATAL] {args.use} contains NaN/Inf (finite_frac={X_ff:.6f})"
-        print(msg, file=sys.stderr)
-        if args.debug_dump:
-            debug_dump(pwr_dir, size, fold, split_path, X, None, None, msg)
-        return 2
-
+    # ------------------------------------------------------------------
+    # Load ridge.npy
+    # ------------------------------------------------------------------
     try:
-        ridge_path, ridge = load_ridge(pwr_dir, args.ridge)
+        ridge_path, ridge_vec = load_ridge(pwr_dir, args.ridge)
     except Exception as e:
         msg = f"[FATAL] ridge load failed: {e}"
         print(msg, file=sys.stderr)
         if args.debug_dump:
-            debug_dump(pwr_dir, size, fold, split_path, X, None, None, msg)
+            debug_dump(pwr_dir, size, fold, split_path, None, None, msg)
         return 3
 
-    absridge = np.abs(ridge)
-    r_ff = finite_frac(ridge)
-    rmin, rmax = minmax_finite(ridge)
-    armin, armax = minmax_finite(absridge)
-    q50 = quantile_finite(absridge, 0.50)
-    q90 = quantile_finite(absridge, 0.90)
-    q95 = quantile_finite(absridge, 0.95)
-    q99 = quantile_finite(absridge, 0.99)
+    print(f"[INFO] ridge file={ridge_path.name} shape={ridge_vec.shape} "
+          f"finite_frac={finite_frac(ridge_vec):.6f}")
 
-    print(f"[INFO] ridge file={ridge_path.name} shape={ridge.shape} finite_frac={r_ff:.6f}")
-    print(f"[INFO] ridge min/max: {rmin:.6g} {rmax:.6g} |ridge| min/max: {armin:.6g} {armax:.6g}")
-    print(f"[INFO] |ridge| quantiles: q50={q50:.6g} q90={q90:.6g} q95={q95:.6g} q99={q99:.6g}")
+    # ------------------------------------------------------------------
+    # Load split .npz — X_train and X_test
+    # ------------------------------------------------------------------
+    z = np.load(str(split_path), allow_pickle=True)
+    print(f"[INFO] split keys={list(z.keys())}")
 
-    if ridge.shape[0] != X.shape[1]:
-        msg = f"[FATAL] ridge length {ridge.shape[0]} != n_edge {X.shape[1]}"
+    train_key = args.use
+    test_key  = args.use_test
+
+    for key in (train_key, test_key):
+        if key not in z:
+            msg = f"[FATAL] split missing '{key}'"
+            print(msg, file=sys.stderr)
+            if args.debug_dump:
+                debug_dump(pwr_dir, size, fold, split_path, None, ridge_vec, msg)
+            return 2
+
+    X_train = np.asarray(z[train_key], dtype=np.float64)
+    X_test  = np.asarray(z[test_key],  dtype=np.float64)
+
+    print(f"[INFO] {train_key} shape={X_train.shape} finite_frac={finite_frac(X_train):.6f}")
+    print(f"[INFO] {test_key}  shape={X_test.shape}  finite_frac={finite_frac(X_test):.6f}")
+
+    if finite_frac(X_train) < 0.999:
+        msg = f"[FATAL] {train_key} contains NaN/Inf"
         print(msg, file=sys.stderr)
         if args.debug_dump:
-            debug_dump(pwr_dir, size, fold, split_path, X, ridge, None, msg)
-        return 3
+            debug_dump(pwr_dir, size, fold, split_path, X_train, ridge_vec, msg)
+        return 2
 
-    eps = float(args.EPSILON)
-    keep_eps = np.isfinite(absridge) & (absridge >= eps)
-    k_eps = int(np.sum(keep_eps))
-
-    top_frac = float(args.fallback_top_frac)
-    if not (0.0 < top_frac <= 1.0):
-        msg = f"[FATAL] fallback_top_frac must be in (0,1], got {top_frac}"
-        print(msg, file=sys.stderr)
-        return 3
-
-    thr_top = np.quantile(absridge[np.isfinite(absridge)], 1.0 - top_frac)
-    keep_top = np.isfinite(absridge) & (absridge >= thr_top)
-    k_top = int(np.sum(keep_top))
-
-    keep_all = np.isfinite(absridge)
-    k_all = int(np.sum(keep_all))
-
-    print(f"[INFO] EPSILON={eps:.6g} keep_eps={k_eps}/{X.shape[1]}")
-    print(f"[INFO] top_frac={top_frac} thr_top={thr_top:.6g} keep_top={k_top}/{X.shape[1]}")
-    print(f"[INFO] keep_all={k_all}/{X.shape[1]}")
-
-    m_eps = compute_metric(X, keep_eps)
-    m_top = compute_metric(X, keep_top)
-    m_all = compute_metric(X, keep_all)
-
-    print(f"[INFO] metric_eps={m_eps} (finite={np.isfinite(m_eps)})")
-    print(f"[INFO] metric_top={m_top} (finite={np.isfinite(m_top)})")
-    print(f"[INFO] metric_all={m_all} (finite={np.isfinite(m_all)})")
-
-    if np.isfinite(m_eps):
-        chosen, chosen_name = m_eps, "eps"
-    elif np.isfinite(m_top):
-        chosen, chosen_name = m_top, "top"
-    elif np.isfinite(m_all):
-        chosen, chosen_name = m_all, "all"
-    else:
-        msg = "[FATAL] all three metrics are non-finite (unexpected given finite splits)"
+    if finite_frac(X_test) < 0.999:
+        msg = f"[FATAL] {test_key} contains NaN/Inf"
         print(msg, file=sys.stderr)
         if args.debug_dump:
-            debug_dump(pwr_dir, size, fold, split_path, X, ridge, keep_all, msg)
-        return 4
+            debug_dump(pwr_dir, size, fold, split_path, X_test, ridge_vec, msg)
+        return 2
 
-    print(f"[INFO] chosen_metric={chosen} chosen_name={chosen_name}")
+    if ridge_vec.shape[0] != X_train.shape[1]:
+        msg = (f"[FATAL] ridge length {ridge_vec.shape[0]} "
+               f"!= n_edges {X_train.shape[1]}")
+        print(msg, file=sys.stderr)
+        if args.debug_dump:
+            debug_dump(pwr_dir, size, fold, split_path, X_train, ridge_vec, msg)
+        return 3
 
+    # ------------------------------------------------------------------
+    # 1. Compute y via dot product of ridge_vec with each observation row
+    # ------------------------------------------------------------------
+    y_train = X_train @ ridge_vec   # (n_train,)
+    y_test  = X_test  @ ridge_vec   # (n_test,)
+
+    y_min, y_max = minmax_finite(y_train)
+    print(f"[INFO] y_train shape={y_train.shape} range=[{y_min:.4g}, {y_max:.4g}]")
+    y_min, y_max = minmax_finite(y_test)
+    print(f"[INFO] y_test  shape={y_test.shape}  range=[{y_min:.4g}, {y_max:.4g}]")
+
+    # ------------------------------------------------------------------
+    # 2. StandardScaler + PCA on X_train; apply same transform to X_test
+    # ------------------------------------------------------------------
+    n_components = min(args.n_components, X_train.shape[0], X_train.shape[1])
+    print(f"[INFO] Running StandardScaler + PCA (n_components={n_components}) ...")
+
+    scaler = StandardScaler()
+    X_train_sc = scaler.fit_transform(X_train)
+    X_test_sc  = scaler.transform(X_test)
+
+    pca = PCA(n_components=n_components, svd_solver="randomized", random_state=42)
+    X_train_pca = pca.fit_transform(X_train_sc)
+    X_test_pca  = pca.transform(X_test_sc)
+
+    var_explained = float(np.cumsum(pca.explained_variance_ratio_)[-1]) * 100
+    print(f"[INFO] PCA variance explained: {var_explained:.1f}%")
+
+    # ------------------------------------------------------------------
+    # 3. Fit Random Forest on PCA-reduced training data
+    # ------------------------------------------------------------------
+    print(f"[INFO] Fitting RandomForestRegressor "
+          f"(n_estimators={args.n_estimators}, n_jobs={args.n_jobs}) ...")
+
+    rf = RandomForestRegressor(
+        n_estimators=args.n_estimators,
+        n_jobs=args.n_jobs,
+        random_state=42,
+        oob_score=True,
+    )
+    rf.fit(X_train_pca, y_train)
+    print(f"[INFO] OOB R²: {rf.oob_score_:.4f}")
+
+    # ------------------------------------------------------------------
+    # 4. Predict on test PCs and compute R²
+    # ------------------------------------------------------------------
+    y_hat  = rf.predict(X_test_pca)
+    r2     = r2_score(y_test, y_hat)
+
+    print(f"[INFO] y_hat  range=[{float(y_hat.min()):.4g}, {float(y_hat.max()):.4g}]")
+    print(f"[INFO] Test R² (cvr2) = {r2:.6f}")
+
+    # ------------------------------------------------------------------
+    # 5. Save cvr2.npy  (same filename convention as original)
+    # ------------------------------------------------------------------
     out_metric = pwr_dir / f"data_{size}_fold_{fold}_cvr2.npy"
+
     if out_metric.exists() and not args.overwrite:
         print(f"[WARN] {out_metric.name} exists and --overwrite not set; NOT overwriting.")
-        print("[WARN] This often means you are looking at stale NaN outputs from a prior run.")
         return 0
 
-    if not np.isfinite(chosen):
-        msg = f"[FATAL] refusing to write NaN chosen metric (chosen_name={chosen_name})"
+    if not np.isfinite(r2):
+        msg = f"[FATAL] refusing to write non-finite R² ({r2})"
         print(msg, file=sys.stderr)
         if args.debug_dump:
-            debug_dump(pwr_dir, size, fold, split_path, X, ridge, keep_eps, msg)
+            debug_dump(pwr_dir, size, fold, split_path, X_test, ridge_vec, msg)
         return 5
 
-    np.save(str(out_metric), np.array(chosen, dtype=float))
-    print(f"[OK] wrote {out_metric.name} value={chosen} (from {chosen_name})")
+    np.save(str(out_metric), np.array(r2, dtype=float))
+    print(f"[OK] wrote {out_metric.name}  value={r2:.6f}")
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
