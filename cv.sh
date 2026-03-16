@@ -17,11 +17,9 @@ FILEDIR=$2
 NUMFILES=$3
 KFOLDS=$4
 EPSILON=$5
+N_COMPONENTS=$6
+N_ESTIMATORS=$7
 INDEX=${SLURM_ARRAY_TASK_ID}
- 
-# Optional overrides via environment variables
-N_COMPONENTS=${N_COMPONENTS:-500}
-N_ESTIMATORS=${N_ESTIMATORS:-500}
  
 module load python3
  
