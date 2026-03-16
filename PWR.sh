@@ -156,8 +156,8 @@ if [ "$N_FULL_COV" -le 0 ]; then
 fi
 
 # Step 4
-submit "rf" "12:00:00" "128GB" "20" -- --wait \
-  "$FILEDIR/rf.sh" "$WRKDIR" "$FILEDIR"
+submit "ridge" "8:00:00" "64GB" "2" -- --wait \
+  "$FILEDIR/ridge.sh" "$WRKDIR" "$FILEDIR"
 
 NUMFILES=$(
   ls "$PWRDATA"/full_*_cov.npy 2>/dev/null \
@@ -196,5 +196,3 @@ submit "final_data" "12:00:00" "96GB" "8" -- --wait \
   "$FILEDIR/final_data.sh" "$WRKDIR" "$FILEDIR"
 
 echo "[DONE] manifest=$manifest"
-
-
