@@ -162,8 +162,7 @@ def main() -> int:
                     help="Number of PCA components (default: 500)")
     ap.add_argument("--n_estimators", type=int, default=500,
                     help="Number of RF trees (default: 500)")
-    ap.add_argument("--n_jobs",  type=int, default=-1,
-                    help="Parallel jobs for RF, -1 = all cores (default: -1)")
+
     ap.add_argument("--overwrite",   action="store_true",
                     help="Overwrite existing cvr2.npy (default: do not overwrite)")
     ap.add_argument("--debug_dump",  action="store_true",
@@ -290,11 +289,11 @@ def main() -> int:
     # 3. Fit Random Forest on PCA-reduced training data
     # ------------------------------------------------------------------
     print(f"[INFO] Fitting RandomForestRegressor "
-          f"(n_estimators={args.n_estimators}, n_jobs={args.n_jobs}) ...")
+          f"(n_estimators={args.n_estimators}, n_jobs=-1) ...")
 
     rf = RandomForestRegressor(
         n_estimators=args.n_estimators,
-        n_jobs=args.n_jobs,
+        n_jobs=-1,
         random_state=42,
         oob_score=True,
     )
