@@ -27,5 +27,4 @@ module load python3
  
 python3 $FILEDIR/cv.py $WRKDIR $FILEDIR $NUMFILES $KFOLDS $EPSILON $INDEX \
     --n_components $N_COMPONENTS \
-    --n_estimators $N_ESTIMATORS \
-    --n_jobs $SLURM_CPUS_PER_TASK
+    --n_estimators $N_ESTIMATORS
