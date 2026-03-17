@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import json
 import re
 import warnings
 from pathlib import Path
@@ -28,6 +29,43 @@ def read_scalar_metric(path: Path, metric_ext: str) -> float:
     raise ValueError(f"Unsupported metric_ext: {metric_ext}")
 
 
+def build_pconn_lookup(pwr_dir: Path) -> pd.DataFrame:
+    """
+    Scan pwr_dir for all _meta.json files and build a lookup table:
+      stem | pconn_1 | pconn_2 | ... | pconn_N
+    where stem is e.g. dat_size_100_index_1
+    """
+    meta_files = sorted(pwr_dir.glob("dat_size_*_index_*_meta.json"))
+
+    if not meta_files:
+        return pd.DataFrame()
+
+    rows = []
+    max_pconns = 0
+
+    for mf in meta_files:
+        with open(mf, "r") as f:
+            meta = json.load(f)
+        stem = mf.name.replace("_meta.json", "")
+        pconns = meta.get("template_pconns", [])
+        rows.append({"stem": stem, "pconns": pconns})
+        max_pconns = max(max_pconns, len(pconns))
+
+    # Build wide-format dataframe: one column per pconn slot
+    records = []
+    for row in rows:
+        record = {"stem": row["stem"]}
+        for j, p in enumerate(row["pconns"], start=1):
+            record[f"pconn_{j}"] = p
+        # Fill missing slots with empty string for rows with fewer pconns
+        for j in range(len(row["pconns"]) + 1, max_pconns + 1):
+            record[f"pconn_{j}"] = ""
+        records.append(record)
+
+    df = pd.DataFrame(records).sort_values("stem").reset_index(drop=True)
+    return df
+
+
 def main():
     parser = argparse.ArgumentParser(description="final_data (Python-native)")
     parser.add_argument("WRKDIR", type=str)
@@ -45,6 +83,20 @@ def main():
     if not pwr_dir.exists():
         raise SystemExit(f"[FATAL] Missing directory: {pwr_dir}")
 
+    # ------------------------------------------------------------------
+    # Build pconn template lookup CSV
+    # ------------------------------------------------------------------
+    df_pconn = build_pconn_lookup(pwr_dir)
+    if df_pconn.empty:
+        print("[WARN] No _meta.json files found in pwr_data — skipping pconn lookup CSV")
+    else:
+        pconn_lookup_path = WRKDIR / "pconn_template_lookup.csv"
+        df_pconn.to_csv(pconn_lookup_path, index=False)
+        print(f"[OK] Saved pconn lookup: {pconn_lookup_path} ({len(df_pconn)} rows)")
+
+    # ------------------------------------------------------------------
+    # Existing metric aggregation (unchanged)
+    # ------------------------------------------------------------------
     metric_suffix = f"_cvr2.{args.metric_ext}"
     file_list = sorted([p for p in pwr_dir.iterdir() if p.is_file() and p.name.endswith(metric_suffix)])
     n_files = len(file_list)
