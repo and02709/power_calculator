@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import os
 import argparse
+import json
 import random
 from typing import Optional, Tuple, List
 
@@ -57,7 +58,7 @@ class EigSplit:
         w_neg = np.maximum(-w, eps)
         self.sqrt_eigenvalues_neg = np.sqrt(w_neg)
 
-def get_averaged_pconn(pconn_dir: str, num_to_select: int, seed: int) -> np.ndarray:
+def get_averaged_pconn(pconn_dir: str, num_to_select: int, seed: int):
     all_files = [os.path.join(pconn_dir, f) for f in os.listdir(pconn_dir) if f.endswith('.pconn.nii')]
     if not all_files:
         raise FileNotFoundError(f"No .pconn.nii files found in {pconn_dir}")
@@ -68,7 +69,7 @@ def get_averaged_pconn(pconn_dir: str, num_to_select: int, seed: int) -> np.ndar
     
     print(f"[INFO] Averaging {len(selected_files)} pconns from {pconn_dir}")
     mats = [import_pconn(f, project_to_psd=False) for f in selected_files]
-    return np.mean(mats, axis=0)
+    return np.mean(mats, axis=0), selected_files
 
 def build_x_aug_from_rng(n_sub: int, one_target: bool, rng: np.random.Generator) -> np.ndarray:
     need_cols = 1 if one_target else 2
@@ -117,7 +118,7 @@ def main():
     chunk_rows = index_file.iloc[args.START - 1 : args.END]
 
     # Generate eigendecomposition from averaged matrices
-    avg_mat = get_averaged_pconn(args.PCONNDIR, args.NUMTEMP, args.seed)
+    avg_mat, selected_pconns = get_averaged_pconn(args.PCONNDIR, args.NUMTEMP, args.seed)
     # Final PSD projection on averaged matrix
     w, v = np.linalg.eigh(avg_mat)
     avg_mat_psd = (v * np.maximum(w, 1e-12)) @ v.T
@@ -135,6 +136,19 @@ def main():
 
         stem = os.path.join(out_dir, f"dat_size_{dataset_size}_index_{sample_count}")
         np.save(f"{stem}_cov.npy", m_cov); np.save(f"{stem}_cor.npy", m_cor); np.save(f"{stem}_z.npy", m_z)
+
+        # Save pconn template metadata alongside each simulation output
+        meta = {
+            "dat_size": dataset_size,
+            "index": sample_count,
+            "seed": args.seed + (args.START + i),
+            "pconn_dir": args.PCONNDIR,
+            "n_templates": len(selected_pconns),
+            "template_pconns": sorted(selected_pconns)
+        }
+        with open(f"{stem}_meta.json", "w") as f:
+            json.dump(meta, f, indent=2)
+        print(f"[INFO] wrote {stem}_meta.json")
 
 if __name__ == "__main__":
     main()
