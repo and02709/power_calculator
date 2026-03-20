@@ -25,9 +25,21 @@ def parse_cor_name(p: Path):
     return int(m.group(1)), int(m.group(2))
 
 
+def load_ridge(outdir: Path) -> np.ndarray:
+    rp = outdir / "ridge.npy"
+    if rp.exists():
+        r = np.load(str(rp), allow_pickle=True)
+        return np.asarray(r).reshape(-1).astype(np.float64, copy=False)
+    cand = sorted(outdir.glob("ridge*.npy"))
+    if not cand:
+        raise FileNotFoundError("No ridge.npy / ridge*.npy found in pwr_data — run ridge_model_generation.py first")
+    r = np.load(str(cand[0]), allow_pickle=True)
+    return np.asarray(r).reshape(-1).astype(np.float64, copy=False)
+
+
 def main():
     ap = argparse.ArgumentParser(
-        description="Combine dat_size_*_index_*_{cov,cor}.npy into full_<size> outputs (R combine_data.R equivalent)."
+        description="Combine dat_size_*_index_*_{cov,cor}.npy into full_<size> outputs and compute y = X @ ridge_vec."
     )
     ap.add_argument("WRKDIR", help="Working directory (contains pwr_data/)")
     ap.add_argument("FILEDIR", help="Compatibility argument (unused).")
@@ -47,6 +59,17 @@ def main():
         raise RuntimeError(f"[FATAL] No cov files found in {outdir} ending with _cov.npy")
     if len(cor_files) == 0:
         raise RuntimeError(f"[FATAL] No cor files found in {outdir} ending with _cor.npy")
+
+    # ------------------------------------------------------------------
+    # Load ridge.npy for computing y = X @ ridge_vec
+    # ------------------------------------------------------------------
+    try:
+        ridge_vec = load_ridge(outdir)
+        print(f"[INFO] Loaded ridge.npy shape={ridge_vec.shape}")
+    except FileNotFoundError as e:
+        print(f"[WARN] {e}")
+        print("[WARN] y will NOT be computed — run ridge_model_generation.py before combine_data.py")
+        ridge_vec = None
 
     # Build maps keyed by (size, index)
     cov_map = {}
@@ -122,9 +145,24 @@ def main():
         print(f"[OK] size={size}: wrote {out_cov.name} {cov_mat.shape}")
         print(f"[OK] size={size}: wrote {out_cor.name} {cor_mat.shape}")
 
+        # ------------------------------------------------------------------
+        # Compute and save y = cor_mat @ ridge_vec  (shape: n_obs,)
+        # ------------------------------------------------------------------
+        if ridge_vec is not None:
+            if ridge_vec.shape[0] != n_edge:
+                print(
+                    f"[WARN] size={size}: ridge length {ridge_vec.shape[0]} != n_edge {n_edge} "
+                    f"— skipping y computation"
+                )
+            else:
+                y = cor_mat @ ridge_vec   # (n_obs,)
+                out_y = outdir / f"full_{size}_y.npy"
+                np.save(out_y, y)
+                print(f"[OK] size={size}: wrote {out_y.name} {y.shape}  "
+                      f"range=[{y.min():.4g}, {y.max():.4g}]")
+
         # Optional: write exactly like R did: full_<size>.rds containing cov matrix as a data.frame
         if args.write_rds and pyreadr is not None and pd is not None:
-            # Convert to data frame with columns V1..Vn like R would when rbind vectors
             cov_df = pd.DataFrame(cov_mat)
             rds_path = outdir / f"full_{size}.rds"
             pyreadr.write_rds(str(rds_path), cov_df)
@@ -135,4 +173,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
