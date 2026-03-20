@@ -20,6 +20,8 @@ FILEDIR=$6
 KFOLDS=$7
 NREP=$8
 EPSILON=$9
+N_COMPONENTS=${10:-500}
+N_ESTIMATORS=${11:-500}
 
 OUTDIR="$WRKDIR/OUT"
 ERRDIR="$WRKDIR/ERR"
@@ -189,11 +191,10 @@ fi
 
 # Step 7 (array)
 submit "cv" "2:00:00" "32GB" "2" -- --array=1-"$NUMFFILES" --wait \
-  "$FILEDIR/cv.sh" "$WRKDIR" "$FILEDIR" "$NUMFILES" "$KFOLDS" "$EPSILON"
+  "$FILEDIR/cv.sh" "$WRKDIR" "$FILEDIR" "$NUMFILES" "$KFOLDS" "$EPSILON" "$N_COMPONENTS" "$N_ESTIMATORS"
 
 # Step 8
 submit "final_data" "12:00:00" "96GB" "8" -- --wait \
   "$FILEDIR/final_data.sh" "$WRKDIR" "$FILEDIR"
 
 echo "[DONE] manifest=$manifest"
-
