@@ -23,7 +23,6 @@ NREP="${8}"
 TASK_ID="${SLURM_ARRAY_TASK_ID}"
 
 # 2. Define Simulation Parameters (Fixes "SEED: unbound variable")
-SEED=1
 N_TIME=2000
 USE_ONE_TARGET=1
 SINGLEPCONN="placeholder"
@@ -56,7 +55,6 @@ echo "[INFO] Processing Rows: $START to $END with SEED: $SEED"
     "$NUMTEMP" \
     "$NREP" \
     "$SINGLEPCONN" \
-    --seed "$SEED" \
     --n_time "$N_TIME" \
     --use_one_target \
     --pconn1 "$PCONNREF"
