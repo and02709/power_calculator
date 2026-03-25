@@ -22,7 +22,6 @@ NREP="${7}"
 TASK_ID="${SLURM_ARRAY_TASK_ID}"
  
 # 2. Define Simulation Parameters
-SEED=1
 N_TIME=2000
  
 # 3. Compute START/END indices
@@ -52,7 +51,6 @@ echo "[INFO] Processing Rows: $START to $END with SEED: $SEED"
     "$PCONNREF" \
     "$NREP" \
     "placeholder" \
-    --seed "$SEED" \
     --n_time "$N_TIME" \
     --use_one_target \
     --pconn1 "$PCONNREF"
