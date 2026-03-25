@@ -107,7 +107,7 @@ def main():
     ap.add_argument("WRKDIR"); ap.add_argument("START", type=int); ap.add_argument("END", type=int)
     ap.add_argument("FILEDIR"); ap.add_argument("PCONNDIR"); ap.add_argument("PCONNREF")
     ap.add_argument("NUMTEMP", type=int); ap.add_argument("NREP", type=int); ap.add_argument("UNUSED_ARG")
-    ap.add_argument("--seed", type=int, default=0); ap.add_argument("--n_time", type=int, default=1000)
+    ap.add_argument("--n_time", type=int, default=1000)
     ap.add_argument("--pconn1"); ap.add_argument("--use_one_target", action="store_true")
     ap.add_argument("--z_clip", type=float, default=1e-7)
     args = ap.parse_args()
