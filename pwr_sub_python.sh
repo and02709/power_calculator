@@ -8,7 +8,6 @@
 #SBATCH -o pwr_sub_%A_%a.out
 #SBATCH -e pwr_sub_%A_%a.err
 #SBATCH --job-name=pwr_sub_py
-
 set -euo pipefail
 
 # 1. Inputs from command line arguments
@@ -20,11 +19,11 @@ PCONNDIR="${5}"
 PCONNREF="${6}"
 NUMTEMP="${7}"
 NREP="${8}"
+
 TASK_ID="${SLURM_ARRAY_TASK_ID}"
 
-# 2. Define Simulation Parameters (Fixes "SEED: unbound variable")
+# 2. Define Simulation Parameters
 N_TIME=2000
-USE_ONE_TARGET=1
 SINGLEPCONN="placeholder"
 
 # 3. Compute START/END indices
@@ -42,7 +41,7 @@ conda activate FC_stability
 # 5. Dynamically find Python
 PYTHON_BIN=$(which python)
 echo "[INFO] Using Python: $PYTHON_BIN"
-echo "[INFO] Processing Rows: $START to $END with SEED: $SEED"
+echo "[INFO] Processing Rows: $START to $END"
 
 # 6. Execute Python Script
 "$PYTHON_BIN" "$FILEDIR/pwr_process_chunk_z.py" \
