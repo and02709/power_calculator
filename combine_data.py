@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 import argparse
+import csv
+import json
 import re
 from collections import defaultdict
 from pathlib import Path
@@ -64,6 +66,51 @@ def load_ridge(outdir: Path, filedir: Path) -> np.ndarray:
     # Fall back to haufe.csv
     print("[INFO] No ridge.npy found in pwr_data — deriving ridge_vec from FILEDIR/haufe.csv")
     return load_ridge_from_haufe(filedir)
+
+
+def write_template_lookup(outdir: Path) -> None:
+    """
+    Scan all _meta.json files in outdir and write pconn_template_lookup.csv.
+
+    Output columns:
+        simulation_id   -- e.g. dat_size_100_index_3
+        dat_size        -- integer dataset size
+        index           -- integer replicate index
+        n_templates     -- number of pconn templates averaged for this simulation
+        template_pconn  -- one row per template (multiple rows if n_templates > 1)
+    """
+    meta_files = sorted(outdir.glob("dat_size_*_index_*_meta.json"))
+    if not meta_files:
+        print("[WARN] No _meta.json files found — skipping pconn_template_lookup.csv")
+        return
+
+    lookup_path = outdir / "pconn_template_lookup.csv"
+    rows_written = 0
+
+    with open(lookup_path, "w", newline="") as fh:
+        writer = csv.writer(fh)
+        writer.writerow(["simulation_id", "dat_size", "index", "n_templates", "template_pconn"])
+
+        for mf in meta_files:
+            try:
+                with open(mf) as jf:
+                    meta = json.load(jf)
+            except Exception as e:
+                print(f"[WARN] Could not read {mf.name}: {e}")
+                continue
+
+            sim_id = f"dat_size_{meta['dat_size']}_index_{meta['index']}"
+            for tpconn in meta.get("template_pconns", []):
+                writer.writerow([
+                    sim_id,
+                    meta["dat_size"],
+                    meta["index"],
+                    meta["n_templates"],
+                    tpconn,
+                ])
+                rows_written += 1
+
+    print(f"[INFO] wrote {lookup_path.name} ({rows_written} rows from {len(meta_files)} meta files)")
 
 
 def main():
@@ -197,6 +244,7 @@ def main():
             pyreadr.write_rds(str(rds_path), cov_df)
             print(f"[OK] size={size}: wrote {rds_path.name} (cov only, R-style)")
 
+    write_template_lookup(outdir)
     print("[DONE] combine_data complete.")
 
 
