@@ -54,8 +54,8 @@ echo "[INFO] Processing Rows: $START to $END with SEED: $SEED"
     "$PCONNDIR" \
     "$PCONNREF" \
     "$NUMTEMP" \
-    "$SINGLEPCONN" \
     "$NREP" \
+    "$SINGLEPCONN" \
     --seed "$SEED" \
     --n_time "$N_TIME" \
     --use_one_target \
