@@ -142,17 +142,19 @@ def main():
     index_file = pd.read_csv(index_path, sep=r"\s+", header=None, engine="python")
     chunk_rows = index_file.iloc[args.START - 1 : args.END]
  
-    avg_mat, selected_pconns = get_averaged_pconn(args.PCONNDIR, args.NUMTEMP)
-    w, v = np.linalg.eigh(avg_mat)
-    avg_mat_psd = (v * np.maximum(w, 1e-12)) @ v.T
-    np.fill_diagonal(avg_mat_psd, 1.0)
- 
-    eig1 = EigSplit(avg_mat_psd)
-    eig2 = None if args.use_one_target else eig1
- 
     for i in range(len(chunk_rows)):
         sample_count = int(chunk_rows.iloc[i, 1])
         dataset_size = int(chunk_rows.iloc[i, 2])
+
+        # Draw fresh random templates independently for each simulation
+        avg_mat, selected_pconns = get_averaged_pconn(args.PCONNDIR, args.NUMTEMP)
+        w, v = np.linalg.eigh(avg_mat)
+        avg_mat_psd = (v * np.maximum(w, 1e-12)) @ v.T
+        np.fill_diagonal(avg_mat_psd, 1.0)
+
+        eig1 = EigSplit(avg_mat_psd)
+        eig2 = None if args.use_one_target else eig1
+
         rng = np.random.default_rng()
         x_aug = build_x_aug_from_rng(args.NREP, args.use_one_target, rng)
  
