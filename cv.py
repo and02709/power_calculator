@@ -4,12 +4,11 @@ cv.py — PCA + Random Forest CV R²
 
 For each split .npz:
   1. Load cor_train / cor_test  (X_train, X_test)
-  2. Compute y_train = X_train @ ridge_vec
-             y_test  = X_test  @ ridge_vec
+  2. Load yt_train / yt_test from split .npz (pre-computed in combine_data.py)
   3. StandardScaler + PCA on X_train; transform X_test with same scaler/PCA
-  4. Fit RandomForestRegressor on (X_train_pca, y_train)
+  4. Fit RandomForestRegressor on (X_train_pca, yt_train)
   5. Predict y_hat = rf.predict(X_test_pca)
-  6. Compute R² between y_test and y_hat -> save as data_<size>_fold_<fold>_cvr2.npy
+  6. Compute R² between yt_test and y_hat -> save as data_<size>_fold_<fold>_cvr2.npy
 
 All other behaviour (stamp file, overwrite guard, debug dump, CLI signature)
 is identical to the original cv.py so cv.sh / PWR.sh need no changes.
@@ -32,7 +31,7 @@ VERSION = "cv.py v2026-01-01 PCA_RF_R2"
 
 
 # ---------------------------------------------------------------------------
-# Helpers (unchanged from original)
+# Helpers
 # ---------------------------------------------------------------------------
 
 def list_splits(pwr_dir: Path) -> List[Tuple[int, int, Path]]:
@@ -75,7 +74,6 @@ def write_stamp(pwr_dir: Path, size: int, fold: int, split_path: Path,
         f"split_file={split_path.name}\n"
         f"INDEX={args.INDEX}\n"
         f"use={args.use}\n"
-        f"ridge_arg={args.ridge}\n"
         f"n_components={args.n_components}\n"
         f"n_estimators={args.n_estimators}\n"
         f"overwrite={args.overwrite}\n"
@@ -86,8 +84,7 @@ def write_stamp(pwr_dir: Path, size: int, fold: int, split_path: Path,
 
 
 def debug_dump(pwr_dir: Path, size: int, fold: int, split_path: Path,
-               X: Optional[np.ndarray], ridge: Optional[np.ndarray],
-               note: str) -> None:
+               X: Optional[np.ndarray], note: str) -> None:
     dbg = pwr_dir / f"DEBUG_size{size}_fold{fold}.npz"
     payload = {
         "note": np.array(note),
@@ -97,32 +94,8 @@ def debug_dump(pwr_dir: Path, size: int, fold: int, split_path: Path,
     if X is not None:
         payload["X_shape"] = np.array(X.shape)
         payload["X_finite_frac"] = np.array(finite_frac(X))
-    if ridge is not None:
-        payload["ridge_shape"] = np.array(ridge.shape)
-        payload["ridge_finite_frac"] = np.array(finite_frac(ridge))
     np.savez(str(dbg), **payload)
     print(f"[WARN] wrote debug dump: {dbg.name}", file=sys.stderr)
-
-
-def load_ridge(pwr_dir: Path, ridge_arg: Optional[str]) -> Tuple[Path, np.ndarray]:
-    if ridge_arg:
-        rp = Path(ridge_arg)
-        if not rp.exists():
-            raise FileNotFoundError(f"--ridge not found: {rp}")
-        r = np.load(str(rp), allow_pickle=True)
-        return rp, np.asarray(r).reshape(-1).astype(float, copy=False)
-
-    rp = pwr_dir / "ridge.npy"
-    if rp.exists():
-        r = np.load(str(rp), allow_pickle=True)
-        return rp, np.asarray(r).reshape(-1).astype(float, copy=False)
-
-    cand = sorted(pwr_dir.glob("ridge*.npy"))
-    if not cand:
-        raise FileNotFoundError("No ridge.npy / ridge*.npy found in pwr_data")
-    rp = cand[0]
-    r = np.load(str(rp), allow_pickle=True)
-    return rp, np.asarray(r).reshape(-1).astype(float, copy=False)
 
 
 def r2_score(y_true: np.ndarray, y_pred: np.ndarray) -> float:
@@ -152,8 +125,6 @@ def main() -> int:
     # Optional flags
     ap.add_argument("--outdir",  default=None,
                     help="default: WRKDIR/pwr_data")
-    ap.add_argument("--ridge",   default=None,
-                    help="default: outdir/ridge.npy or first ridge*.npy")
     ap.add_argument("--use",     choices=["cov_train", "cor_train"], default="cor_train",
                     help="Training matrix key in split .npz (default: cor_train)")
     ap.add_argument("--use_test", choices=["cov_test", "cor_test"], default="cor_test",
@@ -198,22 +169,7 @@ def main() -> int:
     print(f"[INFO] wrote stamp: {stamp_path.name}")
 
     # ------------------------------------------------------------------
-    # Load ridge.npy
-    # ------------------------------------------------------------------
-    try:
-        ridge_path, ridge_vec = load_ridge(pwr_dir, args.ridge)
-    except Exception as e:
-        msg = f"[FATAL] ridge load failed: {e}"
-        print(msg, file=sys.stderr)
-        if args.debug_dump:
-            debug_dump(pwr_dir, size, fold, split_path, None, None, msg)
-        return 3
-
-    print(f"[INFO] ridge file={ridge_path.name} shape={ridge_vec.shape} "
-          f"finite_frac={finite_frac(ridge_vec):.6f}")
-
-    # ------------------------------------------------------------------
-    # Load split .npz — X_train and X_test
+    # Load split .npz — X_train, X_test, yt_train, yt_test
     # ------------------------------------------------------------------
     z = np.load(str(split_path), allow_pickle=True)
     print(f"[INFO] split keys={list(z.keys())}")
@@ -221,60 +177,42 @@ def main() -> int:
     train_key = args.use
     test_key  = args.use_test
 
-    for key in (train_key, test_key):
+    for key in (train_key, test_key, "yt_train", "yt_test"):
         if key not in z:
             msg = f"[FATAL] split missing '{key}'"
             print(msg, file=sys.stderr)
             if args.debug_dump:
-                debug_dump(pwr_dir, size, fold, split_path, None, ridge_vec, msg)
+                debug_dump(pwr_dir, size, fold, split_path, None, msg)
             return 2
 
-    X_train = np.asarray(z[train_key], dtype=np.float64)
-    X_test  = np.asarray(z[test_key],  dtype=np.float64)
+    X_train  = np.asarray(z[train_key],  dtype=np.float64)
+    X_test   = np.asarray(z[test_key],   dtype=np.float64)
+    yt_train = np.asarray(z["yt_train"], dtype=np.float64)
+    yt_test  = np.asarray(z["yt_test"],  dtype=np.float64)
 
     print(f"[INFO] {train_key} shape={X_train.shape} finite_frac={finite_frac(X_train):.6f}")
     print(f"[INFO] {test_key}  shape={X_test.shape}  finite_frac={finite_frac(X_test):.6f}")
+    y_min, y_max = minmax_finite(yt_train)
+    print(f"[INFO] yt_train shape={yt_train.shape} range=[{y_min:.4g}, {y_max:.4g}]")
+    y_min, y_max = minmax_finite(yt_test)
+    print(f"[INFO] yt_test  shape={yt_test.shape}  range=[{y_min:.4g}, {y_max:.4g}]")
 
     if finite_frac(X_train) < 0.999:
         msg = f"[FATAL] {train_key} contains NaN/Inf"
         print(msg, file=sys.stderr)
         if args.debug_dump:
-            debug_dump(pwr_dir, size, fold, split_path, X_train, ridge_vec, msg)
+            debug_dump(pwr_dir, size, fold, split_path, X_train, msg)
         return 2
 
     if finite_frac(X_test) < 0.999:
         msg = f"[FATAL] {test_key} contains NaN/Inf"
         print(msg, file=sys.stderr)
         if args.debug_dump:
-            debug_dump(pwr_dir, size, fold, split_path, X_test, ridge_vec, msg)
+            debug_dump(pwr_dir, size, fold, split_path, X_test, msg)
         return 2
 
-    if ridge_vec.shape[0] != X_train.shape[1]:
-        msg = (f"[FATAL] ridge length {ridge_vec.shape[0]} "
-               f"!= n_edges {X_train.shape[1]}")
-        print(msg, file=sys.stderr)
-        if args.debug_dump:
-            debug_dump(pwr_dir, size, fold, split_path, X_train, ridge_vec, msg)
-        return 3
-
     # ------------------------------------------------------------------
-    # 1. Compute y via dot product of ridge_vec with each observation row
-    # ------------------------------------------------------------------
-    y_train = X_train @ ridge_vec   # (n_train,)
-    y_test  = X_test  @ ridge_vec   # (n_test,)
-
-    y_min, y_max = minmax_finite(y_train)
-    print(f"[INFO] y_train shape={y_train.shape} range=[{y_min:.4g}, {y_max:.4g}]")
-    y_min, y_max = minmax_finite(y_test)
-    print(f"[INFO] y_test  shape={y_test.shape}  range=[{y_min:.4g}, {y_max:.4g}]")
-
-    # Save y_train and y_test
-    np.save(str(pwr_dir / f"y_train_size{size}_fold{fold}.npy"), y_train)
-    np.save(str(pwr_dir / f"y_test_size{size}_fold{fold}.npy"),  y_test)
-    print(f"[INFO] wrote y_train_size{size}_fold{fold}.npy and y_test_size{size}_fold{fold}.npy")
-
-    # ------------------------------------------------------------------
-    # 2. StandardScaler + PCA on X_train; apply same transform to X_test
+    # 1. StandardScaler + PCA on X_train; apply same transform to X_test
     # ------------------------------------------------------------------
     n_components = min(args.n_components, X_train.shape[0], X_train.shape[1])
     print(f"[INFO] Running StandardScaler + PCA (n_components={n_components}) ...")
@@ -291,7 +229,7 @@ def main() -> int:
     print(f"[INFO] PCA variance explained: {var_explained:.1f}%")
 
     # ------------------------------------------------------------------
-    # 3. Fit Random Forest on PCA-reduced training data
+    # 2. Fit Random Forest on PCA-reduced training data using yt_train
     # ------------------------------------------------------------------
     print(f"[INFO] Fitting RandomForestRegressor "
           f"(n_estimators={args.n_estimators}, n_jobs=-1) ...")
@@ -302,14 +240,14 @@ def main() -> int:
         random_state=42,
         oob_score=True,
     )
-    rf.fit(X_train_pca, y_train)
+    rf.fit(X_train_pca, yt_train)
     print(f"[INFO] OOB R²: {rf.oob_score_:.4f}")
 
     # ------------------------------------------------------------------
-    # 4. Predict on test PCs and compute R²
+    # 3. Predict on test PCs and compute R² against yt_test
     # ------------------------------------------------------------------
-    y_hat  = rf.predict(X_test_pca)
-    r2     = r2_score(y_test, y_hat)
+    y_hat = rf.predict(X_test_pca)
+    r2    = r2_score(yt_test, y_hat)
 
     print(f"[INFO] y_hat  range=[{float(y_hat.min()):.4g}, {float(y_hat.max()):.4g}]")
     print(f"[INFO] Test R² (cvr2) = {r2:.6f}")
@@ -319,7 +257,7 @@ def main() -> int:
     print(f"[INFO] wrote y_hat_size{size}_fold{fold}.npy")
 
     # ------------------------------------------------------------------
-    # 5. Save cvr2.npy  (same filename convention as original)
+    # 4. Save cvr2.npy  (same filename convention as original)
     # ------------------------------------------------------------------
     out_metric = pwr_dir / f"data_{size}_fold_{fold}_cvr2.npy"
 
@@ -331,7 +269,7 @@ def main() -> int:
         msg = f"[FATAL] refusing to write non-finite R² ({r2})"
         print(msg, file=sys.stderr)
         if args.debug_dump:
-            debug_dump(pwr_dir, size, fold, split_path, X_test, ridge_vec, msg)
+            debug_dump(pwr_dir, size, fold, split_path, X_test, msg)
         return 5
 
     np.save(str(out_metric), np.array(r2, dtype=float))

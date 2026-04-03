@@ -124,6 +124,7 @@ def main():
     )
     ap.add_argument("WRKDIR", help="Working directory (contains pwr_data/)")
     ap.add_argument("FILEDIR", help="Directory containing haufe.csv (used to derive ridge_vec if ridge.npy absent).")
+    ap.add_argument("EPSILON", type=float, help="Noise scale factor: error ~ N(0, (epsilon * sqrt(var(y)))^2).")
     ap.add_argument("--outdir", default=None, help="Override output directory (default: WRKDIR/pwr_data)")
     ap.add_argument("--write-rds", action="store_true",
                     help="Also write full_<size>.rds (requires pyreadr).")
@@ -131,7 +132,8 @@ def main():
  
     outdir  = Path(args.outdir) if args.outdir else (Path(args.WRKDIR) / "pwr_data")
     filedir = Path(args.FILEDIR)
- 
+    epsilon = args.EPSILON
+
     if not outdir.exists():
         raise FileNotFoundError(f"pwr_data not found: {outdir}")
  
@@ -233,7 +235,7 @@ def main():
         if ridge_vec.shape[0] != n_edge:
             print(
                 f"[WARN] size={size}: ridge length {ridge_vec.shape[0]} != n_edge {n_edge} "
-                f"— skipping y computation"
+                f"— skipping y and yt computation"
             )
         else:
             y = cor_mat @ ridge_vec          # (n_obs,)
@@ -241,7 +243,19 @@ def main():
             np.save(out_y, y)
             print(f"[OK] size={size}: wrote {out_y.name} {y.shape}  "
                   f"range=[{y.min():.4g}, {y.max():.4g}]")
- 
+
+            # ------------------------------------------------------------------
+            # Compute yt = y + error, where error ~ N(0, (epsilon * sqrt(var(y)))^2)
+            # ------------------------------------------------------------------
+            var_y = np.var(y)
+            noise_std = epsilon * np.sqrt(var_y)
+            error = np.random.normal(loc=0.0, scale=noise_std, size=y.shape)
+            yt = y + error
+            out_yt = outdir / f"full_{size}_yt.npy"
+            np.save(out_yt, yt)
+            print(f"[OK] size={size}: wrote {out_yt.name} {yt.shape}  "
+                  f"noise_std={noise_std:.4g}  range=[{yt.min():.4g}, {yt.max():.4g}]")
+
         # Optional RDS
         if args.write_rds and pyreadr is not None and pd is not None:
             cov_df = pd.DataFrame(cov_mat)

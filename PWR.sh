@@ -147,7 +147,7 @@ fi
 
 # Step 3
 submit "combine_data" "1:00:00" "64GB" "4" -- --wait \
-  "$FILEDIR/combine_data.sh" "$WRKDIR" "$FILEDIR"
+  "$FILEDIR/combine_data.sh" "$WRKDIR" "$FILEDIR" "$EPSILON"
 
 N_FULL_COV=$(ls "$PWRDATA"/full_*_cov.npy 2>/dev/null | wc -l | tr -d ' ')
 echo "[INFO] full_*_cov.npy count=$N_FULL_COV"
@@ -158,8 +158,8 @@ if [ "$N_FULL_COV" -le 0 ]; then
 fi
 
 # Step 4
-submit "ridge" "8:00:00" "64GB" "2" -- --wait \
-  "$FILEDIR/ridge.sh" "$WRKDIR" "$FILEDIR"
+# submit "ridge" "8:00:00" "64GB" "2" -- --wait \
+#  "$FILEDIR/ridge.sh" "$WRKDIR" "$FILEDIR"
 
 NUMFILES=$(
   ls "$PWRDATA"/full_*_cov.npy 2>/dev/null \

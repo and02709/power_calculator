@@ -9,9 +9,9 @@ import pandas as pd
 
 # Option A: explicit CV split files
 # Examples:
-#   full_100_fold_3_split.npy
-#   dat_size_100_fold_3_split.npy
-SPLIT_RE = re.compile(r"^(?P<stem>.+)_fold_(?P<fold>\d+)_split\.npy$")
+#   full_100_fold_3_split.npz
+#   dat_size_100_fold_3_split.npz
+SPLIT_RE = re.compile(r"^(?P<stem>.+)_fold_(?P<fold>\d+)_split\.npz$")
 
 DATA_FROM_FULL = re.compile(r"(?:^|_)full_(\d+)(?:_|$)")
 DATA_FROM_DATSIZE = re.compile(r"(?:^|_)dat_size_(\d+)(?:_|$)")
@@ -113,7 +113,7 @@ def main():
         raise RuntimeError(
             f"[FATAL] No fold/split files found AND no paired dat_size_*_index_*_(cov|cor).npy files found in {pwr_data_dir}.\n"
             f"[HINT] This script expects either:\n"
-            f"  - *fold split* files: *_fold_<n>_split.npy\n"
+            f"  - *fold split* files: *_fold_<n>_split.npz\n"
             f"  - OR *simulation outputs*: dat_size_<size>_index_<idx>_cov.npy + dat_size_<size>_index_<idx>_cor.npy\n"
         )
 

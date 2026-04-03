@@ -67,15 +67,19 @@ def main() -> int:
     size = sizes[args.INDEX - 1]
     cov_path = outdir / f"full_{size}_cov.npy"
     cor_path = outdir / f"full_{size}_cor.npy"
+    yt_path  = outdir / f"full_{size}_yt.npy"
 
     try:
         cov = np.load(str(cov_path))
         cor = np.load(str(cor_path))
+        yt  = np.load(str(yt_path))
 
         if cov.ndim != 2 or cor.ndim != 2:
             raise ValueError(f"Expected 2D arrays; got cov{cov.shape} cor{cor.shape}")
         if cov.shape != cor.shape:
             raise ValueError(f"Shape mismatch: cov{cov.shape} vs cor{cor.shape}")
+        if yt.ndim != 1 or yt.shape[0] != cov.shape[0]:
+            raise ValueError(f"Expected yt shape ({cov.shape[0]},); got {yt.shape}")
 
         n_rows = cov.shape[0]
         kfolds = int(args.KFOLDS)
@@ -101,6 +105,8 @@ def main() -> int:
                 cor_train=cor[train_idx, :],
                 cov_test=cov[test_idx, :],
                 cor_test=cor[test_idx, :],
+                yt_train=yt[train_idx],
+                yt_test=yt[test_idx],
             )
 
         print(f"[OK] INDEX={args.INDEX} size={size}: wrote {kfolds} split files")
@@ -111,6 +117,7 @@ def main() -> int:
         print(f"[WARN] cvGen failed for INDEX={args.INDEX} size={size}", file=sys.stderr)
         print(f"[WARN] cov_path={cov_path}", file=sys.stderr)
         print(f"[WARN] cor_path={cor_path}", file=sys.stderr)
+        print(f"[WARN] yt_path={yt_path}", file=sys.stderr)
         print(f"[WARN] error={e}", file=sys.stderr)
         return 0
 
