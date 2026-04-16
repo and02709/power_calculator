@@ -223,7 +223,9 @@ def main() -> int:
     # --- Pass 2: full parser with model-specific flags --------------------
     ap = build_base_parser(add_model_args=True)
     model_cls.cli_args(ap)
-    args = ap.parse_args()
+    args, unknown = ap.parse_known_args()
+    if unknown:
+        print(f"[INFO] Ignoring unrecognised args (other model flags): {unknown}")
 
     # --- Startup banner ---------------------------------------------------
     print(f"[INFO] {VERSION}")
