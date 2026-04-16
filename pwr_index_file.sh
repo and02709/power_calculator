@@ -1,28 +1,30 @@
-import numpy as np
-import pandas as pd
+#!/bin/bash -l
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=4
+#SBATCH --cpus-per-task=20
+#SBATCH --mem=96GB
+#SBATCH --time=12:00:00
+#SBATCH -p msismall
+#SBATCH --mail-type=FAIL
+#SBATCH --mail-user=and02709@umn.edu
+#SBATCH -o pwr_index_file.out
+#SBATCH -e pwr_index_file.err
+#SBATCH --job-name pwr_index_file
 
-# ---- Input ----
-sample_sizes = np.array([100, 139, 194, 271, 378, 528, 736, 1027, 1433, 2000])
+set -euo pipefail
 
+WRKDIR=$1
+FILEDIR=$2
 
-# ---- Replicate R behavior ----
-repeated_vector = np.repeat(sample_sizes, sample_sizes)
-count_vector = np.concatenate([np.arange(1, n + 1) for n in sample_sizes])
+# ---- Load Python instead of R ----
+module load python3  # adjust if your cluster uses a different module
 
-n_index = len(repeated_vector)
-index = np.arange(1, n_index + 1)
+cd "${WRKDIR}/pwr_data"
 
-# ---- Build DataFrame ----
-df = pd.DataFrame({
-    "index": index,
-    "sample_count": count_vector,
-    "dataset": repeated_vector
-})
+echo "[INFO] Running pwr_index_file.py"
+echo "[INFO] WRKDIR  = ${WRKDIR}"
+echo "[INFO] FILEDIR = ${FILEDIR}"
+echo "[INFO] pwd     = $(pwd)"
 
-# ---- Write file (matches write.table(..., col.names=F, row.names=F, quote=F)) ----
-df.to_csv(
-    "pwr_index_file.txt",
-    sep="\t",
-    header=False,
-    index=False
-)
+# ---- Run Python script ----
+python3 "${FILEDIR}/pwr_index_file.py"

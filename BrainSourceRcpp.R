@@ -1,154 +1,167 @@
-EigSplit <- setRefClass(
-  "EigSplit",
-  fields = list(
-    eigenvectors = "matrix",
-    sqrt_eigenvalues_pos = "numeric",
-    sqrt_eigenvalues_neg = "numeric"
-  ),
-  
-  methods = list(
-    initialize = function(symmetric_matrix) {
-      # Machine epsilon for float precision
-      eps <- .Machine$double.eps
-      
-      # Perform eigendecomposition
-      eig <- eigen(symmetric_matrix, symmetric = TRUE)
-      
-      # Store the eigenvectors
-      eigenvectors <<- eig$vectors
-      
-      # Positive eigenvalues
-      eigenvalues_pos <- pmax(eig$values, eps)
-      sqrt_eigenvalues_pos <<- sqrt(eigenvalues_pos)
-      
-      # Negative eigenvalues (inverted)
-      eigenvalues_neg <- pmax(-eig$values, eps)
-      sqrt_eigenvalues_neg <<- sqrt(eigenvalues_neg)
-    }
-  )
-)
+library(Rcpp)
+library(RcppArmadillo)
+library(RcppEigen)
 
-EigPosNeg <- setRefClass(
-  "EigPosNeg",
-  fields = list(
-    matrixPositive = "matrix",
-    matrixNegative = "matrix"
-  ),
-  
-  methods = list(
-    initialize = function(symmetric_matrix){
-      # Perform split eigendecomposition on the symmetric matrix
-      eigsplitObject <- EigSplit(as.matrix(symmetric_matrix))
-      
-      # Reconstruct SPD matrix for positive eigenvalues
-      half <- eigsplitObject$eigenvectors %*% diag(eigsplitObject$sqrt_eigenvalues_pos)
-      matrixPositive <<- tcrossprod(half, half)
-      
-      # Reconstruct the SPD matrix for negative eigenvalues
-      half <- eigsplitObject$eigenvectors %*% diag(eigsplitObject$sqrt_eigenvalues_neg)
-      matrixNegative <<- tcrossprod(half, half)
-    }
-  )
-)
+// [[Rcpp::depends(RcppArmadillo)]]
+#include <RcppArmadillo.h>
+using namespace Rcpp;
+using namespace arma;
 
-xaugBuild <- function(n_sub){
-  # Construct random design matrix
-  x <- matrix(rnorm(n_sub), ncol = 1)
-  x_aug <- matrix(0, nrow=n_sub, ncol=2)
-  x_aug[,1] <- x[,1]
-  x_aug[,2] <- -x[,1]
+// [[Rcpp::export]]
+List eig_split(const mat& symmetric_matrix) {
+  double eps = std::numeric_limits<double>::epsilon();
   
-  # Shift the columns of x to be positive
-  x_min <- min(x_aug)
-  x_aug <- x_aug + abs(x_min)
+  vec eigval;
+  mat eigvec;
+  eig_sym(eigval, eigvec, symmetric_matrix);
   
-  return(list(x=x, x_aug=x_aug))
+  vec sqrt_eigval_pos = sqrt(clamp(eigval, eps, datum::inf));
+  vec sqrt_eigval_neg = sqrt(clamp(-eigval, eps, datum::inf));
+  
+  return List::create(
+    Named("eigenvectors") = eigvec,
+    Named("sqrt_eigenvalues_pos") = sqrt_eigval_pos,
+    Named("sqrt_eigenvalues_neg") = sqrt_eigval_neg
+  );
 }
 
-arrayBuild <- function(M, n_sub, n_time, x_aug, epsilon=0, offset=0){
+// [[Rcpp::export]]
+List eig_pos_neg(const mat& symmetric_matrix) {
+  List split = eig_split(symmetric_matrix);
+  mat eigvec = as<mat>(split["eigenvectors"]);
+  vec sqrt_pos = as<vec>(split["sqrt_eigenvalues_pos"]);
+  vec sqrt_neg = as<vec>(split["sqrt_eigenvalues_neg"]);
   
-  if(epsilon < 0) stop("epison must be non-negative")
+  mat half_pos = eigvec * diagmat(sqrt_pos);
+  mat half_neg = eigvec * diagmat(sqrt_neg);
   
-  n_node <- dim(M)[[1]]
+  mat matrixPositive = half_pos * half_pos.t();
+  mat matrixNegative = half_neg * half_neg.t();
   
-  M_eig <- EigSplit(M)
+  return List::create(
+    Named("matrixPositive") = matrixPositive,
+    Named("matrixNegative") = matrixNegative
+  );
+}
+
+// [[Rcpp::export]]
+List xaug_build(int n_sub) {
+  mat x = randn(n_sub, 1);
+  mat x_aug(n_sub, 2);
+  x_aug.col(0) = x.col(0);
+  x_aug.col(1) = -x.col(0);
   
-  tdata <- apply(x_aug, 1, function(row,  
-                                    n_sub,
-                                    n_time,
-                                    n_node,
-                                    epsilon,
-                                    M_eig) {
-    trand <- matrix(rnorm(n_time * n_node), nrow = n_time, ncol = n_node)
-    temp_t_pos <- sqrt(row[1]) * t(t(trand) * M_eig$sqrt_eigenvalues_pos) %*% t(M_eig$eigenvectors) 
-    temp_t_neg <- sqrt(row[2]) * t(t(trand) * M_eig$sqrt_eigenvalues_neg) %*% t(M_eig$eigenvectors)
+  double x_min = x_aug.min();
+  x_aug = x_aug + std::abs(x_min);
+  
+  return List::create(Named("x") = x, Named("x_aug") = x_aug);
+}
+
+// [[Rcpp::export]]
+cube array_build(const mat& M, int n_sub, int n_time, const mat& x_aug, double epsilon = 0.0, double offset = 0.0) {
+  if (epsilon < 0.0) stop("epsilon must be non-negative");
+  
+  int n_node = M.n_rows;
+  List M_eig = eig_split(M);
+  mat eigvec = as<mat>(M_eig["eigenvectors"]);
+  vec sqrt_pos = as<vec>(M_eig["sqrt_eigenvalues_pos"]);
+  vec sqrt_neg = as<vec>(M_eig["sqrt_eigenvalues_neg"]);
+  
+  cube tdata(n_time, n_node, n_sub);
+  
+  for (int i = 0; i < n_sub; ++i) {
+    mat trand = randn(n_time, n_node);
     
-    if(epsilon > 0){
-      eps_matrix <- matrix(rnorm(n_time * n_node, offset, epsilon), nrow = n_time, ncol = n_node)
-    } else{
-      eps_matrix <- matrix(0, nrow = n_time, ncol = n_node)
-    }
+    mat temp_t_pos = sqrt(x_aug(i,0)) * (trand.each_row() % sqrt_pos.t()) * eigvec.t();
+    mat temp_t_neg = sqrt(x_aug(i,1)) * (trand.each_row() % sqrt_neg.t()) * eigvec.t();
     
-    return(temp_t_pos + temp_t_neg + eps_matrix)
-  }, 
-  n_sub=n_sub,
-  n_time=n_time,
-  n_node=n_node,
-  epsilon=epsilon,
-  M_eig=M_eig,
-  simplify = FALSE)
+    mat eps_matrix = (epsilon > 0.0) ? randn(n_time, n_node) * epsilon + offset : zeros<mat>(n_time, n_node);
+    
+    tdata.slice(i) = temp_t_pos + temp_t_neg + eps_matrix;
+  }
   
-  tdata <- abind::abind(tdata, along=3)
-  
-  return(tdata)
+  return tdata;
 }
 
-vectorize_uplo <- function(mat) {
-  mat[upper.tri(mat)]
+// [[Rcpp::export]]
+vec vectorize_uplo(const mat& mat_in) {
+  int n = mat_in.n_rows;
+  std::vector<double> out;
+  for (int i = 0; i < n; ++i) {
+    for (int j = i+1; j < n; ++j) {
+      out.push_back(mat_in(i,j));
+    }
+  }
+  return wrap(out);
 }
 
-constructMatrices <- function(n_sub, n_time, n_node, tdata){
-  n_edge <- (n_node * n_node - n_node) / 2
-  cov_data <- apply(tdata, 3, function(x){
-    mat <- cov(x, use = "pairwise.complete.obs")
-    return(mat[upper.tri(mat)])
-  })
-  cor_data <- apply(tdata, 3, function(x){
-    mat <- cor(x, use = "pairwise.complete.obs")
-    return(mat[upper.tri(mat)])
-  })
+// [[Rcpp::export]]
+List construct_matrices(int n_node, const cube& tdata) {
+  int n_sub = tdata.n_slices;
+  int n_edge = (n_node * (n_node - 1)) / 2;
+  mat cov_data(n_sub, n_edge);
+  mat cor_data(n_sub, n_edge);
   
-  return(list(cov_data=t(cov_data), cor_data=t(cor_data)))
+  for (int i = 0; i < n_sub; ++i) {
+    mat temp = tdata.slice(i);
+    mat cov_mat = cov(temp);
+    mat cor_mat = cor(temp);
+    cov_data.row(i) = trans(vectorize_uplo(cov_mat));
+    cor_data.row(i) = trans(vectorize_uplo(cor_mat));
+  }
+  
+  return List::create(
+    Named("cov_data") = cov_data,
+    Named("cor_data") = cor_data
+  );
 }
 
-# Helper function to unvectorize upper triangular part into a symmetric matrix
-unvectorize_uplo <- function(vec, n_node) {
-  mat <- matrix(0, nrow = n_node, ncol = n_node)
-  mat[upper.tri(mat)] <- vec
-  mat <- mat + t(mat)  # Symmetrize
-  return(mat)
+// [[Rcpp::export]]
+mat unvectorize_uplo(const vec& vec_in, int n_node) {
+  mat mat_out = zeros<mat>(n_node, n_node);
+  int idx = 0;
+  for (int i = 0; i < n_node; ++i) {
+    for (int j = i+1; j < n_node; ++j) {
+      mat_out(i, j) = vec_in(idx);
+      mat_out(j, i) = vec_in(idx);
+      idx++;
+    }
+  }
+  return mat_out;
 }
 
-functionalConstruct <- function(x_aug, data_matrices, n_node){
-  X <- cbind(1, x_aug$x)
-  b_cov <- solve(crossprod(X, X)) %*% crossprod(X, data_matrices$cov_data)
-  b_cor <- solve(crossprod(X, X)) %*% crossprod(X, data_matrices$cor_data)
+// [[Rcpp::export]]
+List functional_construct(const mat& x, const mat& cov_data, const mat& cor_data, int n_node) {
+  mat X = join_horiz(ones<vec>(x.n_rows), x);
+  mat XtX_inv = inv_sympd(X.t() * X);
+  mat b_cov = XtX_inv * X.t() * cov_data;
+  mat b_cor = XtX_inv * X.t() * cor_data;
   
-  cov_matrix <- unvectorize_uplo(b_cov[2,], n_node)
-  cor_matrix <- unvectorize_uplo(b_cor[2,], n_node)
+  mat cov_matrix = unvectorize_uplo(b_cov.row(1).t(), n_node);
+  mat cor_matrix = unvectorize_uplo(b_cor.row(1).t(), n_node);
   
-  return(list(b_cov=b_cov, cov_matrix=cov_matrix, b_cor=b_cor, cor_matrix=cor_matrix))
+  return List::create(
+    Named("b_cov") = b_cov,
+    Named("cov_matrix") = cov_matrix,
+    Named("b_cor") = b_cor,
+    Named("cor_matrix") = cor_matrix
+  );
 }
 
-BrainSimulation <- function(M, n_sub, n_time){
+// [[Rcpp::export]]
+List brain_simulation(const mat& M, int n_sub, int n_time) {
+  int n_node = M.n_rows;
+  List x_aug_list = xaug_build(n_sub);
+  mat x = as<mat>(x_aug_list["x"]);
+  mat x_aug = as<mat>(x_aug_list["x_aug"]);
   
-  n_node <- dim(M)[[1]]
-  x_aug <- xaugBuild(n_sub)
+  cube arrayData = array_build(M, n_sub, n_time, x_aug);
+  List tempMats = construct_matrices(n_node, arrayData);
   
-  arrayData <- arrayBuild(M = M, n_sub = n_sub, n_time = n_time, x_aug = x_aug$x_aug)
-  tempMats <- constructMatrices(n_sub = n_sub, n_time = n_time, n_node = n_node, tdata = arrayData)
+  List functionalData = functional_construct(x, tempMats["cov_data"], tempMats["cor_data"], n_node);
   
-  functionalData <- functionalConstruct(x_aug = x_aug, data_matrices = tempMats, n_node = n_node)
-  # converts
-  return(list(functionalData=functionalData, Mats = tempMats))
+  return List::create(
+    Named("functionalData") = functionalData,
+    Named("Mats") = tempMats
+  );
 }

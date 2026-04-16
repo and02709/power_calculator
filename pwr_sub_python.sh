@@ -1,85 +1,61 @@
 #!/bin/bash -l
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=4
-#SBATCH --cpus-per-task=20
-#SBATCH --mem=96GB
-#SBATCH --time=12:00:00
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=2
+#SBATCH --mem=16GB
+#SBATCH --time=10:00:00
 #SBATCH -p msismall
-#SBATCH --mail-type=FAIL  
-#SBATCH --mail-user=and02709@umn.edu 
-#SBATCH -o PWR_Sub_%a.out
-#SBATCH -e PWR_Sub_%a.err
-#SBATCH --job-name PWR_Sub
-
+#SBATCH -o pwr_sub_%A_%a.out
+#SBATCH -e pwr_sub_%A_%a.err
+#SBATCH --job-name=pwr_sub_py
 set -euo pipefail
 
-echo "=================== PWR_Sub.sh START ==================="
-date
-echo "[INFO] SLURM_JOB_ID           = ${SLURM_JOB_ID:-NA}"
-echo "[INFO] SLURM_ARRAY_JOB_ID     = ${SLURM_ARRAY_JOB_ID:-NA}"
-echo "[INFO] SLURM_ARRAY_TASK_ID    = ${SLURM_ARRAY_TASK_ID:-NA}"
-echo "[INFO] SLURM_JOB_NODELIST     = ${SLURM_JOB_NODELIST:-NA}"
-echo "--------------------------------------------------------"
+# 1. Inputs from command line arguments
+WRKDIR="${1}"
+CHUNK_SIZE="${2}"
+NINDEX="${3}"
+FILEDIR="${4}"
+PCONNDIR="${5}"
+PCONNREF="${6}"
+NUMTEMP="${7}"
+NREP="${8}"
 
-# Arguments
-WRKDIR=$1
-CHUNK_SIZE=$2
-NINDEX=$3
-FILEDIR=$4
+TASK_ID="${SLURM_ARRAY_TASK_ID}"
 
-echo "[ARGS] WRKDIR     = ${WRKDIR}"
-echo "[ARGS] CHUNK_SIZE = ${CHUNK_SIZE}"
-echo "[ARGS] NINDEX     = ${NINDEX}"
-echo "[ARGS] FILEDIR    = ${FILEDIR}"
-echo "--------------------------------------------------------"
+# 2. Define Simulation Parameters
+N_TIME=2000
+SINGLEPCONN="placeholder"
 
-# Make sure FILEDIR and pwr_process_chunk.R exist
-echo "[DEBUG] Listing FILEDIR:"
-ls -ld "${FILEDIR}" || { echo "[FATAL] FILEDIR does not exist: ${FILEDIR}"; exit 1; }
-
-echo "[DEBUG] Checking pwr_process_chunk.R:"
-if [ ! -f "${FILEDIR}/pwr_process_chunk.R" ]; then
-    echo "[FATAL] ${FILEDIR}/pwr_process_chunk.R not found!"
-    exit 1
-fi
-
-ls -l "${FILEDIR}/pwr_process_chunk.R"
-echo "[DEBUG] First 10 lines of pwr_process_chunk.R:"
-head -n 10 "${FILEDIR}/pwr_process_chunk.R"
-echo "--------------------------------------------------------"
-
-# Show current working directory
-echo "[DEBUG] pwd = $(pwd)"
-echo "[DEBUG] Listing current directory:"
-ls
-echo "--------------------------------------------------------"
-
-# SLURM_ARRAY_TASK_ID is automatically set (1, 2, ..., NJOBS)
-TASK_ID=${SLURM_ARRAY_TASK_ID}
-
-# Calculate START and END index based on chunk size
+# 3. Compute START/END indices
 START=$(( (TASK_ID - 1) * CHUNK_SIZE + 1 ))
 END=$(( TASK_ID * CHUNK_SIZE ))
-
-# Make sure END doesn't exceed total number of lines
-if [ "${END}" -gt "${NINDEX}" ]; then
-  END=${NINDEX}
+if [[ "$END" -gt "$NINDEX" ]]; then
+  END="$NINDEX"
 fi
 
-echo "[CHUNK] Task ${TASK_ID}: processing rows ${START} to ${END}"
-echo "--------------------------------------------------------"
+# 4. Environment Activation
+module purge || true
+source /projects/standard/faird/shared/code/external/envs/miniconda3/load_miniconda3.sh
+conda activate FC_stability
 
-# (Optional) load R here if not already loaded in parent script
-# module load R/4.4.0-openblas-rocky8
+# 5. Dynamically find Python
+PYTHON_BIN=$(which python)
+echo "[INFO] Using Python: $PYTHON_BIN"
+echo "[INFO] Processing Rows: $START to $END"
 
-# Call R script to process this chunk
-echo "[RUN] Rscript ${FILEDIR}/pwr_process_chunk.R ${WRKDIR} ${START} ${END} ${FILEDIR}"
-Rscript "${FILEDIR}/pwr_process_chunk.R" "${WRKDIR}" "${START}" "${END}" "${FILEDIR}"
-RETVAL=$?
+# 6. Execute Python Script
+"$PYTHON_BIN" "$FILEDIR/pwr_process_chunk_z.py" \
+    "$WRKDIR" \
+    "$START" \
+    "$END" \
+    "$FILEDIR" \
+    "$PCONNDIR" \
+    "$PCONNREF" \
+    "$NUMTEMP" \
+    "$NREP" \
+    "$SINGLEPCONN" \
+    --n_time "$N_TIME" \
+    --use_one_target \
+    --pconn1 "$PCONNREF"
 
-echo "--------------------------------------------------------"
-echo "[INFO] Rscript exit status = ${RETVAL}"
-date
-echo "=================== PWR_Sub.sh END ====================="
-
-exit "${RETVAL}"
+echo "[INFO] Task $TASK_ID finished successfully."

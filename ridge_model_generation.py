@@ -1,47 +1,67 @@
-args <- commandArgs(trailingOnly = TRUE)
+#!/usr/bin/env python3
+import argparse
+from pathlib import Path
+import sys
 
-WRKDIR <- args[1]
-FILEDIR <- args[2]
-
-library(tidyverse)
-library(glmnet)
-library(cifti)
-
-# directory_path <- "/home/feczk001/shared/projects/ABCD/gordon_sets/data/group2_10minonly_FD0p1"
-# files <- list.files(directory_path, pattern = "\\.pconn\\.nii$", full.names = TRUE, recursive = TRUE)
-# 
-# n_files <- length(files)
-# n_edge <- length(which(upper.tri(cifti::read_cifti(files[1])$data)))
-# 
-# result_list <- lapply(1:n_files, function(i) {
-#   X <- cifti::read_cifti(files[i])$data
-#   filename <- sub(".*sub-(NDARINV[0-9A-Z]+).*", "\\1", files[i])
-#   realVec <- X[which(upper.tri(X))]
-#   list(real = realVec, name=filename)
-# })
-# 
-# realMat <- data.frame(t(sapply(result_list, function(x) x$real)))
-# realNames <- sapply(result_list, function(x) x$name)
-# realMat$ID <- realNames
-# 
-# phenos <- read.csv("/home/btervocl/and02709/power_data/ABCDphenotype.BTC.20240509.csv", header = TRUE) %>% select(all_of(c("src_subject_id", pheno)))
-# colnames(phenos) <- c("ID", "Y")
-# phenos$ID <- sub("_", "", phenos$ID)
-# 
-# df <- dplyr::inner_join(phenos, realMat, by="ID") %>% dplyr::select(-ID)
-# X <- df %>% dplyr::select(-Y) %>% as.matrix(.)
-# Y <- df %>% dplyr::select(Y) %>% as.matrix(.)
-# rm(df)
-# complete_cases <- complete.cases(X, Y)
-# X_clean <- X[complete_cases, ]
-# Y_clean <- Y[complete_cases]
-# rm(X,Y)
-# 
-# ridge_model <- cv.glmnet(x = X_clean, y = Y_clean, alpha = 0)
-
-haufe <- read_csv(paste0(WRKDIR,"/haufe.csv"), col_names = F)
-ridge_model <- haufe[upper.tri(haufe)]
+import numpy as np
+import pandas as pd
 
 
-saveRDS(ridge_model, file=paste0(WRKDIR,"/pwr_data/ridge.rds"))
+def upper_triangle_vec(M: np.ndarray) -> np.ndarray:
+    iu = np.triu_indices(M.shape[0], k=1)
+    return M[iu].astype(np.float64, copy=False)
 
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Generate ridge.npy from haufe.csv (upper triangle vector)."
+    )
+    parser.add_argument("WRKDIR", type=str, help="Working directory")
+    parser.add_argument("FILEDIR", type=str, help="Unused (compatibility)")
+    # Accept optional 3rd positional so ridge.sh can pass 'default' without crashing
+    parser.add_argument("PHENO", nargs="?", default=None, help="Optional phenotype label (positional)")
+
+    # Also allow flag form if you ever want it
+    parser.add_argument("--pheno", default=None, help="Optional phenotype label (flag form)")
+
+    args = parser.parse_args()
+
+    fldir = Path(args.FILEDIR)
+    wrkdir = Path(args.WRKDIR)
+    out_dir = wrkdir / "pwr_data"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    # phenotype label resolution
+    pheno = args.pheno if args.pheno is not None else args.PHENO
+    if pheno is not None:
+        pheno = str(pheno).strip()
+        if pheno == "" or pheno.lower() == "default":
+            pheno = None
+
+    haufe_path = fldir / "haufe.csv"
+    if not haufe_path.exists():
+        print(f"[FATAL] haufe.csv not found at: {haufe_path}", file=sys.stderr)
+        sys.exit(1)
+
+    # Load haufe.csv (no header)
+    haufe = pd.read_csv(haufe_path, header=None).to_numpy(dtype=np.float64, copy=False)
+
+    if haufe.ndim != 2 or haufe.shape[0] != haufe.shape[1]:
+        raise ValueError(f"Expected square matrix in haufe.csv; got {haufe.shape}")
+
+    ridge_vec = upper_triangle_vec(haufe)
+
+    ridge_path = out_dir / "ridge.npy"
+    np.save(ridge_path, ridge_vec)
+    print(f"[OK] wrote {ridge_path} (n={ridge_vec.size})")
+
+    if pheno is not None:
+        ridge_ph = out_dir / f"ridge_{pheno}.npy"
+        np.save(ridge_ph, ridge_vec)
+        print(f"[OK] wrote {ridge_ph} (pheno={pheno})")
+
+    print("[DONE] ridge_model_generation.py complete.")
+
+
+if __name__ == "__main__":
+    main()

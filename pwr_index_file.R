@@ -1,30 +1,10 @@
-#!/bin/bash -l
-#SBATCH --nodes=1
-#SBATCH --ntasks-per-node=4
-#SBATCH --cpus-per-task=20
-#SBATCH --mem=96GB
-#SBATCH --time=12:00:00
-#SBATCH -p msismall
-#SBATCH --mail-type=FAIL
-#SBATCH --mail-user=and02709@umn.edu
-#SBATCH -o pwr_index_file.out
-#SBATCH -e pwr_index_file.err
-#SBATCH --job-name pwr_index_file
+sample_sizes <- c(100, 139, 194, 271, 378, 528, 736, 1027, 1433, 2000)
+repeated_vector <- rep(sample_sizes, times = sample_sizes)
+count_vector <- unlist(lapply(sample_sizes, function(n) 1:n))
+n_index <- length(repeated_vector)
+index <- 1:n_index
 
-set -euo pipefail
+df <- data.frame(index, count_vector, repeated_vector)
+colnames(df) <- c("index", "sample_count", "dataset")
 
-WRKDIR=$1
-FILEDIR=$2
-
-# ---- Load Python instead of R ----
-module load python3  # adjust if your cluster uses a different module
-
-cd "${WRKDIR}/pwr_data"
-
-echo "[INFO] Running pwr_index_file.py"
-echo "[INFO] WRKDIR  = ${WRKDIR}"
-echo "[INFO] FILEDIR = ${FILEDIR}"
-echo "[INFO] pwd     = $(pwd)"
-
-# ---- Run Python script ----
-python3 "${FILEDIR}/pwr_index_file.py"
+write.table(df, file="pwr_index_file.txt", quote=F, col.names = F, row.names = F)

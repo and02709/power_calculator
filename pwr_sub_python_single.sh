@@ -8,6 +8,7 @@
 #SBATCH -o pwr_sub_%A_%a.out
 #SBATCH -e pwr_sub_%A_%a.err
 #SBATCH --job-name=pwr_sub_py
+
 set -euo pipefail
 
 # 1. Inputs from command line arguments
@@ -17,14 +18,12 @@ NINDEX="${3}"
 FILEDIR="${4}"
 PCONNDIR="${5}"
 PCONNREF="${6}"
-NUMTEMP="${7}"
-NREP="${8}"
+NREP="${7}"
 
 TASK_ID="${SLURM_ARRAY_TASK_ID}"
 
 # 2. Define Simulation Parameters
 N_TIME=2000
-SINGLEPCONN="placeholder"
 
 # 3. Compute START/END indices
 START=$(( (TASK_ID - 1) * CHUNK_SIZE + 1 ))
@@ -44,16 +43,15 @@ echo "[INFO] Using Python: $PYTHON_BIN"
 echo "[INFO] Processing Rows: $START to $END"
 
 # 6. Execute Python Script
-"$PYTHON_BIN" "$FILEDIR/pwr_process_chunk_z.py" \
+"$PYTHON_BIN" "$FILEDIR/pwr_process_chunk_single_z.py" \
     "$WRKDIR" \
     "$START" \
     "$END" \
     "$FILEDIR" \
     "$PCONNDIR" \
     "$PCONNREF" \
-    "$NUMTEMP" \
     "$NREP" \
-    "$SINGLEPCONN" \
+    "placeholder" \
     --n_time "$N_TIME" \
     --use_one_target \
     --pconn1 "$PCONNREF"

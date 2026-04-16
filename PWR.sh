@@ -1,13 +1,226 @@
-Version: 1.0
+#!/bin/bash -l
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=10
+#SBATCH --mem=24GB
+#SBATCH --time=12:00:00
+#SBATCH -p msismall
+#SBATCH --mail-type=FAIL
+#SBATCH --mail-user=and02709@umn.edu
+#SBATCH --job-name=PWR
 
-RestoreWorkspace: Default
-SaveWorkspace: Default
-AlwaysSaveHistory: Default
+set -euo pipefail
 
-EnableCodeIndexing: Yes
-UseSpacesForTab: Yes
-NumSpacesForTab: 2
-Encoding: UTF-8
+WRKDIR=$1
+PCONNDIR=$2
+PCONNREF=$3
+SINGLETEMP=$4
+NUMTEMP=$5
+FILEDIR=$6
+KFOLDS=$7
+NREP=$8
+EPSILON=$9
 
-RnwWeave: Sweave
-LaTeX: pdfLaTeX
+# ---------------------------------------------------------------------------
+# Model selection — pass as environment variable when calling sbatch:
+#   MODEL_FILE=ridge sbatch PWR.sh ...
+#
+# Default: random_forest  (original behaviour — no change needed for
+# existing workflows that call:  sbatch PWR.sh ... 500 500)
+# ---------------------------------------------------------------------------
+MODEL_FILE=${MODEL_FILE:-random_forest}
+
+# Positional args 10/11 kept for backward compatibility with existing calls.
+N_COMPONENTS=${10:-500}
+N_ESTIMATORS=${11:-500}
+
+# Model-specific hyperparameter overrides (env vars; ignored if not relevant)
+RIDGE_ALPHA=${RIDGE_ALPHA:-1.0}
+LASSO_ALPHA=${LASSO_ALPHA:-0.01}
+EN_ALPHA=${EN_ALPHA:-0.01}
+EN_L1_RATIO=${EN_L1_RATIO:-0.5}
+SVR_C=${SVR_C:-1.0}
+NN_HIDDEN_LAYERS=${NN_HIDDEN_LAYERS:-256,128}
+NN_LR=${NN_LR:-0.001}
+GB_N_ESTIMATORS=${GB_N_ESTIMATORS:-300}
+GB_LR=${GB_LR:-0.05}
+
+OUTDIR="$WRKDIR/OUT"
+ERRDIR="$WRKDIR/ERR"
+PWRDATA="$WRKDIR/pwr_data"
+
+echo "File Checks"
+echo "[INFO] WRKDIR=$WRKDIR"
+echo "[INFO] KFOLDS=$KFOLDS"
+echo "[INFO] EPSILON=$EPSILON"
+echo "[INFO] FILEDIR=$FILEDIR"
+echo "[INFO] PWRDATA=$PWRDATA"
+echo "[INFO] MODEL_FILE=$MODEL_FILE"
+echo "[INFO] SLURM_JOB_ID=${SLURM_JOB_ID:-<none>}"
+echo "[INFO] SLURM_SUBMIT_DIR=${SLURM_SUBMIT_DIR:-<none>}"
+
+if [[ "$SINGLETEMP" != "0" && "$SINGLETEMP" != "1" ]]; then
+  echo "[FATAL] SINGLETEMP must be 0 or 1" >&2
+  exit 1
+fi
+
+if ! [[ "${NUMTEMP:-}" =~ ^[0-9]+$ ]] || (( NUMTEMP < 1 )); then
+  echo "[FATAL] NUMTEMP must be an integer >= 1 (got: '${NUMTEMP:-unset}')" >&2
+  exit 1
+fi
+
+# EPSILON check (requires bc)
+if ! [[ "$EPSILON" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+  echo "[FATAL] EPSILON must be numeric" >&2
+  exit 1
+fi
+if (( $(echo "$EPSILON < 0" | bc -l) )); then
+  echo "[FATAL] EPSILON must be > 0" >&2
+  exit 1
+fi
+
+mkdir -p "$OUTDIR" "$ERRDIR" "$PWRDATA"
+cd "$PWRDATA"
+
+manifest="$OUTDIR/job_manifest.tsv"
+echo -e "step\tjobid\tstdout\tstderr" > "$manifest"
+
+# submit STEP TIME MEM CPUS [sbatch args ...] -- script args ...
+submit() {
+  local step="$1"; shift
+  local time="$1"; shift
+  local mem="$1"; shift
+  local cpus="$1"; shift
+
+  local outpat="$OUTDIR/${step}_%A_%a.out"
+  local errpat="$ERRDIR/${step}_%A_%a.err"
+
+  # Collect extra sbatch args up to '--'
+  local sbatch_extra=()
+  while [[ $# -gt 0 ]]; do
+    if [[ "$1" == "--" ]]; then
+      shift
+      break
+    fi
+    sbatch_extra+=("$1")
+    shift
+  done
+
+  if [[ $# -lt 1 ]]; then
+    echo "[FATAL] submit($step): missing script" >&2
+    exit 1
+  fi
+
+  local script="$1"; shift
+
+  echo "[SUBMIT] $step"
+  echo "  script: $script $*"
+  echo "  out:    $outpat"
+  echo "  err:    $errpat"
+  echo "  extra:  ${sbatch_extra[*]:-<none>}"
+
+  # Print the full sbatch line (for debugging)
+  echo "[CMD] sbatch --parsable --chdir=$PWRDATA --time=$time --mem=$mem --cpus-per-task=$cpus -N 1 --output=$outpat --error=$errpat ${sbatch_extra[*]:-} $script $*"
+
+  local jid
+  jid=$(sbatch --parsable \
+    --chdir="$PWRDATA" \
+    --time="$time" --mem="$mem" --cpus-per-task="$cpus" \
+    -N 1 \
+    --output="$outpat" --error="$errpat" \
+    "${sbatch_extra[@]}" \
+    "$script" "$@")
+
+  echo "[JOB] $step -> $jid"
+
+  local so se
+  so=$(scontrol show job "${jid%%_*}" 2>/dev/null | awk -F= '/StdOut=/{print $2}' | awk '{print $1}' || true)
+  se=$(scontrol show job "${jid%%_*}" 2>/dev/null | awk -F= '/StdErr=/{print $2}' | awk '{print $1}' || true)
+  echo "[SCONTROL] StdOut=$so"
+  echo "[SCONTROL] StdErr=$se"
+
+  echo -e "${step}\t${jid}\t${so}\t${se}" >> "$manifest"
+}
+
+# Step 1
+submit "pwr_setup" "1:00:00" "16GB" "2" -- --wait \
+  "$FILEDIR/pwr_setup.sh" "$WRKDIR" "$FILEDIR"
+
+if [ ! -s "$PWRDATA/pwr_index_file.txt" ]; then
+  echo "[FATAL] pwr_index_file.txt missing/empty" >&2
+  ls -lh "$PWRDATA" | head -n 80
+  exit 1
+fi
+
+NINDEX=$(wc -l < "$PWRDATA/pwr_index_file.txt" | tr -d ' ')
+CHUNK_SIZE=100
+NJOBS=$(( (NINDEX + CHUNK_SIZE - 1) / CHUNK_SIZE ))
+echo "[INFO] NINDEX=$NINDEX CHUNK_SIZE=$CHUNK_SIZE NJOBS=$NJOBS"
+
+if [[ "$SINGLETEMP" == "1" ]]; then
+    echo "Running in single-temp mode"
+    submit "pwr_sub_python_single" "10:00:00" "16GB" "2" -- --array=1-"$NJOBS" --wait \
+    "$FILEDIR/pwr_sub_python_single.sh" "$WRKDIR" "$CHUNK_SIZE" "$NINDEX" "$FILEDIR" "$PCONNDIR" "$PCONNREF" "$NREP"
+else
+    echo "Running in multi-temp mode"
+    # Step 2 (array)
+    submit "pwr_sub_python" "10:00:00" "16GB" "2" -- --array=1-"$NJOBS" --wait \
+    "$FILEDIR/pwr_sub_python.sh" "$WRKDIR" "$CHUNK_SIZE" "$NINDEX" "$FILEDIR" "$PCONNDIR" "$PCONNREF" "$NUMTEMP" "$NREP"
+fi
+
+# Step 3
+submit "combine_data" "1:00:00" "64GB" "4" -- --wait \
+  "$FILEDIR/combine_data.sh" "$WRKDIR" "$FILEDIR" "$EPSILON"
+
+N_FULL_COV=$(ls "$PWRDATA"/full_*_cov.npy 2>/dev/null | wc -l | tr -d ' ')
+echo "[INFO] full_*_cov.npy count=$N_FULL_COV"
+if [ "$N_FULL_COV" -le 0 ]; then
+  echo "[FATAL] combine_data produced no full_*_cov.npy" >&2
+  ls -lh "$PWRDATA" | head -n 80
+  exit 1
+fi
+
+# Step 4
+# submit "ridge" "8:00:00" "64GB" "2" -- --wait \
+#  "$FILEDIR/ridge.sh" "$WRKDIR" "$FILEDIR"
+
+NUMFILES=$(
+  ls "$PWRDATA"/full_*_cov.npy 2>/dev/null \
+  | sed -E 's/.*\/full_([0-9]+)_cov\.npy/\1/' \
+  | sort -u | wc -l | tr -d ' '
+)
+echo "[INFO] NUMFILES=$NUMFILES"
+if [ "$NUMFILES" -le 0 ]; then
+  echo "[FATAL] NUMFILES=0" >&2
+  exit 1
+fi
+
+# Step 5
+submit "cvGen" "1:00:00" "16GB" "2" -- --array=1-"$NUMFILES" --wait \
+  "$FILEDIR/cvGen.sh" "$WRKDIR" "$FILEDIR" "$NUMFILES" "$KFOLDS"
+
+# Step 6
+submit "setupCVmetrics" "1:00:00" "16GB" "2" -- --wait \
+  "$FILEDIR/setupCVmetrics.sh" "$WRKDIR" "$FILEDIR"
+
+# IMPORTANT: cvGen writes .npz splits (not .npy)
+NUMFFILES=$(ls "$PWRDATA"/full_*_fold_*_split.npz 2>/dev/null | wc -l | tr -d ' ')
+echo "[INFO] NUMFFILES=$NUMFFILES"
+if [ "$NUMFFILES" -le 0 ]; then
+  echo "[FATAL] NUMFFILES=0 (no full_*_fold_*_split.npz found)" >&2
+  ls -lh "$PWRDATA" | head -n 120
+  exit 1
+fi
+
+# Step 7 (array) — pass MODEL_FILE and all hyperparams as env vars into cv.sh
+submit "cv" "2:00:00" "32GB" "2" -- \
+  --array=1-"$NUMFFILES" --wait \
+  --export=ALL,MODEL_FILE="$MODEL_FILE",N_COMPONENTS="$N_COMPONENTS",N_ESTIMATORS="$N_ESTIMATORS",RIDGE_ALPHA="$RIDGE_ALPHA",LASSO_ALPHA="$LASSO_ALPHA",EN_ALPHA="$EN_ALPHA",EN_L1_RATIO="$EN_L1_RATIO",SVR_C="$SVR_C",NN_HIDDEN_LAYERS="$NN_HIDDEN_LAYERS",NN_LR="$NN_LR",GB_N_ESTIMATORS="$GB_N_ESTIMATORS",GB_LR="$GB_LR" \
+  -- \
+  "$FILEDIR/cv.sh" "$WRKDIR" "$FILEDIR" "$NUMFILES" "$KFOLDS" "$EPSILON"
+
+# Step 8
+submit "final_data" "12:00:00" "96GB" "8" -- --wait \
+  "$FILEDIR/final_data.sh" "$WRKDIR" "$FILEDIR"
+
+echo "[DONE] manifest=$manifest"
