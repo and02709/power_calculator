@@ -128,7 +128,6 @@ def main():
     ap.add_argument("FILEDIR")
     ap.add_argument("PCONNDIR")
     ap.add_argument("PCONNREF")
-    ap.add_argument("NUMTEMP", type=int)
     ap.add_argument("NREP", type=int)
     ap.add_argument("UNUSED_ARG")
     ap.add_argument("--n_time", type=int, default=1000)
@@ -141,13 +140,13 @@ def main():
     index_path = os.path.join(out_dir, "pwr_index_file.txt")
     index_file = pd.read_csv(index_path, sep=r"\s+", header=None, engine="python")
     chunk_rows = index_file.iloc[args.START - 1 : args.END]
- 
+
     for i in range(len(chunk_rows)):
         sample_count = int(chunk_rows.iloc[i, 1])
         dataset_size = int(chunk_rows.iloc[i, 2])
 
-        # Draw fresh random templates independently for each simulation
-        avg_mat, selected_pconns = get_averaged_pconn(args.PCONNDIR, args.NUMTEMP)
+        # Draw one fresh random template independently for each simulation
+        avg_mat, selected_pconns = get_averaged_pconn(args.PCONNDIR, 1)
         w, v = np.linalg.eigh(avg_mat)
         avg_mat_psd = (v * np.maximum(w, 1e-12)) @ v.T
         np.fill_diagonal(avg_mat_psd, 1.0)

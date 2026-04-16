@@ -1,22 +1,26 @@
-#!/bin/bash -l
-#SBATCH --nodes=1
-#SBATCH --ntasks-per-node=4
-#SBATCH --cpus-per-task=20
-#SBATCH --mem=96GB
-#SBATCH --time=12:00:00
-#SBATCH -p msismall
-#SBATCH --mail-type=FAIL  
-#SBATCH --mail-user=and02709@umn.edu 
-#SBATCH -o setupCVmetrics.out
-#SBATCH -e setupCVmetrics.err
-#SBATCH --job-name setupCVmetrics
+args <- commandArgs(trailingOnly = TRUE)
 
-WRKDIR=$1
-FILEDIR=$2
+WRKDIR <- args[1]
+FILEDIR <- args[2]
 
+warning("Running setupCVmetrics")
+library(tidyverse)
 
-module load python3
-cd $WRKDIR/pwr_data
+file_list <- list.files(path = file.path(WRKDIR, "pwr_data"), 
+                        pattern = "_fold_[0-9]+_split\\.rds$", 
+                        full.names = TRUE)
 
-# Step 1: generate index file
-python3 $FILEDIR/setupCVmetrics.py $WRKDIR $FILEDIR
+if (length(file_list) == 0) {
+  stop("No matching RDS files found. Please check your WRKDIR and file naming pattern.")
+}
+
+filenames <- tools::file_path_sans_ext(basename(file_list))
+
+cv <- data.frame(
+  data = as.integer(sub(".*full_([0-9]+)_fold.*", "\\1", filenames)),
+  fold = as.integer(sub(".*_fold_([0-9]+)_.*", "\\1", filenames))
+)
+cv <- data.frame(apply(cv, 2, as.integer))
+cv$metric <- 0
+
+saveRDS(cv, file = file.path(WRKDIR, "pwr_data", "cv.rds"))

@@ -1,126 +1,140 @@
-#!/usr/bin/env python3
-import argparse
-import re
-import sys
-from pathlib import Path
-from typing import List
+#!/usr/bin/env Rscript
 
-import numpy as np
+# --- Step 0: Command-line arguments ---
+args <- commandArgs(trailingOnly = TRUE)
 
+if (length(args) < 6L) {
+  stop("Expected 6 arguments: WRKDIR FILEDIR NUMFILES KFOLDS EPSILON INDEX")
+}
 
-RE_FULL_COV = re.compile(r"^full_(\d+)_cov\.npy$")
-RE_FULL_COR = re.compile(r"^full_(\d+)_cor\.npy$")
+WRKDIR   <- args[1]                 # Output directory
+FILEDIR  <- args[2]                 # Directory containing scripts / ridge.rds
+NUMFILES <- as.integer(args[3])     # Total number of split RDS files (not used here, but passed)
+k_folds  <- as.integer(args[4])     # Number of folds (for bookkeeping)
+epsilon  <- as.numeric(args[5])     # Noise parameter (currently not used)
+index    <- as.integer(args[6])     # Index of file to process (1-based)
 
+cat("========== cv.R START ==========\n")
+cat("WRKDIR  :", WRKDIR,  "\n")
+cat("FILEDIR :", FILEDIR, "\n")
+cat("NUMFILES:", NUMFILES, "\n")
+cat("k_folds :", k_folds, "\n")
+cat("epsilon :", epsilon, "\n")
+cat("index   :", index,   "\n\n")
 
-def find_full_sizes(pwr_data_dir: Path) -> List[int]:
-    cov_sizes = set()
-    cor_sizes = set()
+# --- Load required libraries ---
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(groupdata2)  # kept for compatibility, even if not used directly
+  library(glmnet)
+})
 
-    for p in pwr_data_dir.iterdir():
-        if not p.is_file():
-            continue
-        m = RE_FULL_COV.match(p.name)
-        if m:
-            cov_sizes.add(int(m.group(1)))
-            continue
-        m = RE_FULL_COR.match(p.name)
-        if m:
-            cor_sizes.add(int(m.group(1)))
+# --- Step 1: Locate matching RDS file(s) ---
+file_pattern <- "split.rds"
+rds_dir      <- file.path(WRKDIR, "pwr_data")
+rds_files    <- sort(list.files(path = rds_dir, pattern = file_pattern, full.names = TRUE))
+filenames    <- tools::file_path_sans_ext(basename(rds_files))
 
-    return sorted(list(cov_sizes & cor_sizes))
+cat("[INFO] Found", length(rds_files), "split .rds files in", rds_dir, "\n")
 
+if (length(rds_files) == 0) {
+  stop("No matching .rds files found in ", rds_dir, ".")
+}
+if (index > length(rds_files) || index < 1L) {
+  stop("Index (", index, ") is out of range [1, ", length(rds_files), "].")
+}
 
-def split_indices(n_rows: int, kfolds: int) -> List[np.ndarray]:
-    if kfolds < 2:
-        raise ValueError("KFOLDS must be >= 2")
-    idx = np.arange(n_rows)
-    return [idx[f::kfolds] for f in range(kfolds)]
+# --- Step 2: Load selected RDS file ---
+rds_file <- rds_files[index]
+cat("[INFO] Reading file:", rds_file, "\n")
+data <- readRDS(rds_file)
+cat("[INFO] Base name:", filenames[index], "\n")
 
+dataset     <- as.integer(sub(".*full_([0-9]+)_.*", "\\1", filenames[index]))
+fold_number <- as.integer(sub(".*fold_([0-9]+)_split.*", "\\1", filenames[index]))
 
-def main() -> int:
-    ap = argparse.ArgumentParser(
-        description="cvGen: for one dataset size (selected by INDEX), write full_<size>_fold_<fold>_split.npz"
+cat("[INFO] Parsed dataset   =", dataset, "\n")
+cat("[INFO] Parsed fold_num  =", fold_number, "\n\n")
+
+# --- Step 3: Separate data into training and testing ---
+if (!all(c("train", "test") %in% names(data))) {
+  stop("The RDS file does not contain $train and $test components.")
+}
+
+train_data <- data$train
+test_data  <- data$test
+
+# Drop any .folds column if present
+train_data <- train_data[, names(train_data) != ".folds", drop = FALSE]
+test_data  <- test_data[,  names(test_data)  != ".folds", drop = FALSE]
+
+cat("[INFO] train_data dim:", paste(dim(train_data), collapse = " x "), "\n")
+cat("[INFO] test_data  dim:", paste(dim(test_data),  collapse = " x "), "\n\n")
+
+# --- Step 4: Load Ridge Model ---
+ridge_path  <- file.path(WRKDIR, "pwr_data", "ridge.rds")
+cat("[INFO] Loading ridge model from:", ridge_path, "\n")
+
+ridge_model <- readRDS(ridge_path)
+cat("[INFO] class(ridge_model) =", paste(class(ridge_model), collapse = ", "), "\n")
+
+# --- Step 5: Assign y values via ridge_model ---
+# We support two cases:
+#  1) ridge_model is a glmnet / cv.glmnet object -> use predict()
+#  2) ridge_model is a numeric vector of coefficients -> use X %*% beta
+
+X_train <- as.matrix(train_data)
+X_test  <- as.matrix(test_data)
+
+if (is.numeric(ridge_model) && is.null(dim(ridge_model))) {
+  # Case 2: numeric coefficient vector
+  cat("[INFO] ridge_model is numeric; treating as coefficient vector.\n")
+  if (length(ridge_model) != ncol(X_train)) {
+    stop(
+      "Length of ridge_model (", length(ridge_model),
+      ") does not match number of columns of train_data (", ncol(X_train), ")."
     )
-    ap.add_argument("WRKDIR")
-    ap.add_argument("FILEDIR")  # unused
-    ap.add_argument("NUMFILES", type=int)
-    ap.add_argument("KFOLDS", type=int)
-    ap.add_argument("INDEX", type=int)  # 1-based SLURM_ARRAY_TASK_ID
-    ap.add_argument("--outdir", default=None)
-    ap.add_argument("--debug", action="store_true")
-    args = ap.parse_args()
+  }
+  y      <- as.vector(X_train %*% ridge_model)
+  y_test <- as.vector(X_test  %*% ridge_model)
+  
+} else if (inherits(ridge_model, c("cv.glmnet", "glmnet"))) {
+  # Case 1: glmnet-style model object
+  cat("[INFO] ridge_model is glmnet / cv.glmnet; using predict().\n")
+  y      <- as.vector(predict(ridge_model, X_train))
+  y_test <- as.vector(predict(ridge_model, X_test))
+  
+} else {
+  stop(
+    "ridge_model has unsupported class: ",
+    paste(class(ridge_model), collapse = ", "),
+    ". Expected numeric, glmnet, or cv.glmnet."
+  )
+}
 
-    outdir = Path(args.outdir) if args.outdir else (Path(args.WRKDIR) / "pwr_data")
-    if not outdir.exists():
-        print(f"[FATAL] pwr_data not found: {outdir}", file=sys.stderr)
-        return 1
+cat("[INFO] Length y      =", length(y),      "\n")
+cat("[INFO] Length y_test =", length(y_test), "\n\n")
 
-    sizes = find_full_sizes(outdir)
-    print(f"[INFO] outdir={outdir}")
-    print(f"[INFO] found_sizes={sizes}")
-    print(f"[INFO] NUMFILES_arg={args.NUMFILES} KFOLDS={args.KFOLDS} INDEX={args.INDEX}")
+# --- Step 6: Train model from Train Data (inner CV Ridge) ---
+cat("[INFO] Fitting cv.glmnet on train_data to predict y.\n")
+train_ridge_model <- cv.glmnet(X_train, y, alpha = 0)
 
-    if args.INDEX < 1 or args.INDEX > len(sizes):
-        print(f"[WARN] INDEX={args.INDEX} out of range 1..{len(sizes)}; no-op exit 0")
-        return 0
+# --- Step 7: Predict on test_data &
+#     Calculate cross-validated R² ---
+cat("[INFO] Predicting on test_data.\n")
+yhat <- as.vector(predict(train_ridge_model, X_test))
 
-    size = sizes[args.INDEX - 1]
-    cov_path = outdir / f"full_{size}_cov.npy"
-    cor_path = outdir / f"full_{size}_cor.npy"
-    yt_path  = outdir / f"full_{size}_yt.npy"
+SS_res <- sum((y_test - yhat)^2)
+SS_tot <- sum((y_test - mean(y_test))^2)
 
-    try:
-        cov = np.load(str(cov_path))
-        cor = np.load(str(cor_path))
-        yt  = np.load(str(yt_path))
+cv_r2 <- 1 - SS_res / SS_tot
+cat("Cross-validated R²:", round(cv_r2, 4), "\n")
 
-        if cov.ndim != 2 or cor.ndim != 2:
-            raise ValueError(f"Expected 2D arrays; got cov{cov.shape} cor{cor.shape}")
-        if cov.shape != cor.shape:
-            raise ValueError(f"Shape mismatch: cov{cov.shape} vs cor{cor.shape}")
-        if yt.ndim != 1 or yt.shape[0] != cov.shape[0]:
-            raise ValueError(f"Expected yt shape ({cov.shape[0]},); got {yt.shape}")
-
-        n_rows = cov.shape[0]
-        kfolds = int(args.KFOLDS)
-        if kfolds > n_rows:
-            print(f"[WARN] KFOLDS={kfolds} > n_rows={n_rows}; clamping to {n_rows}")
-            kfolds = n_rows
-
-        folds = split_indices(n_rows, kfolds)
-
-        for f, test_idx in enumerate(folds, start=1):
-            train_mask = np.ones(n_rows, dtype=bool)
-            train_mask[test_idx] = False
-            train_idx = np.where(train_mask)[0]
-
-            out_path = outdir / f"full_{size}_fold_{f}_split.npz"
-            np.savez_compressed(
-                str(out_path),
-                size=np.array([size], dtype=int),
-                fold=np.array([f], dtype=int),
-                train_idx=train_idx.astype(int),
-                test_idx=test_idx.astype(int),
-                cov_train=cov[train_idx, :],
-                cor_train=cor[train_idx, :],
-                cov_test=cov[test_idx, :],
-                cor_test=cor[test_idx, :],
-                yt_train=yt[train_idx],
-                yt_test=yt[test_idx],
-            )
-
-        print(f"[OK] INDEX={args.INDEX} size={size}: wrote {kfolds} split files")
-        return 0
-
-    except Exception as e:
-        # keep pipeline alive, but log clearly
-        print(f"[WARN] cvGen failed for INDEX={args.INDEX} size={size}", file=sys.stderr)
-        print(f"[WARN] cov_path={cov_path}", file=sys.stderr)
-        print(f"[WARN] cor_path={cor_path}", file=sys.stderr)
-        print(f"[WARN] yt_path={yt_path}", file=sys.stderr)
-        print(f"[WARN] error={e}", file=sys.stderr)
-        return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+# --- Step 8: Save result ---
+out_path <- file.path(
+  WRKDIR, "pwr_data",
+  paste0("data_", dataset, "_fold_", fold_number, "_cvr2.rds")
+)
+saveRDS(cv_r2, file = out_path)
+cat("[INFO] Saved cv_r2 to:", out_path, "\n")
+cat("=========== cv.R END ===========\n")
