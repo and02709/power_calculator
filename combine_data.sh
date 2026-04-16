@@ -13,12 +13,11 @@ set -euo pipefail
 
 WRKDIR="$1"
 FILEDIR="$2"
+EPSILON="$3"
 
 cd "$WRKDIR/pwr_data"
 
 source /projects/standard/faird/shared/code/external/envs/miniconda3/load_miniconda3.sh
 conda activate FC_stability
 
-python "$FILEDIR/combine_data.py" "$WRKDIR" "$FILEDIR"
-# If you want RDS outputs too (requires pyreadr in env):
-# python "$FILEDIR/python_refactor/combine_data.py" "$WRKDIR" "$FILEDIR" --write-rds
+python "$FILEDIR/combine_data.py" "$WRKDIR" "$FILEDIR" "$EPSILON"
