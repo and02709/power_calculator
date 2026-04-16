@@ -1,107 +1,91 @@
 """
-models/TEMPLATE.py — Copy this file to add a new model plugin.
+models/base.py — Abstract base class and global registry for CV model plugins.
 
-Steps
------
-1. Copy this file to  models/<your_model_name>.py
-   (use lowercase_with_underscores for the name, e.g. models/xgboost_reg.py)
+Every plugin file (e.g. models/ridge.py) must:
+  1. Subclass CVModel
+  2. Call register() at module level
 
-2. Replace every occurrence of "TEMPLATE" / "template" with your model name.
-
-3. Fill in the three required methods:
-     cli_args  — add argparse flags your model needs
-     __init__  — store hyperparameters; build the sklearn/PyTorch/... estimator
-     fit       — train on (X_train, y_train)
-     predict   — return predictions for X_test
-
-4. Optionally override extra_info() to surface diagnostics in the stamp file.
-
-5. Run:
-     python3 cv.py WRKDIR FILEDIR NUMFILES KFOLDS EPSILON INDEX \\
-         --model_file <your_model_name>
-
-That's it.  No changes to cv.py, cv.sh, or any other file are needed.
+The registry is keyed by the plugin *file stem* (e.g. "ridge", "lasso",
+"random_forest") so that `--model_file ridge` resolves to models/ridge.py.
 """
 
-from __future__ import annotations
 
+import abc
 import argparse
+from typing import Dict, Type
 
 import numpy as np
-from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler
-
-# -- The two imports you always need ----------------------------------------
-from models.base import CVModel, register
 
 
-# Change "template" to your chosen model name (must match the filename stem).
-@register("template")
-class TemplateModel(CVModel):
+# ---------------------------------------------------------------------------
+# Global registry: stem -> class
+# ---------------------------------------------------------------------------
+_REGISTRY: Dict[str, Type["CVModel"]] = {}
 
-    # ------------------------------------------------------------------
-    # 1. CLI flags
-    # ------------------------------------------------------------------
+
+def register(name: str):
+    """Class decorator that registers a CVModel subclass under `name`."""
+    def _inner(cls: Type[CVModel]):
+        if name in _REGISTRY:
+            raise KeyError(f"Model '{name}' is already registered.")
+        _REGISTRY[name] = cls
+        return cls
+    return _inner
+
+
+def get_model_class(name: str) -> Type["CVModel"]:
+    if name not in _REGISTRY:
+        available = sorted(_REGISTRY.keys())
+        raise ValueError(
+            f"Unknown model '{name}'. "
+            f"Available models: {available}\n"
+            f"To add a new model, create models/<name>.py and subclass CVModel."
+        )
+    return _REGISTRY[name]
+
+
+def list_models():
+    return sorted(_REGISTRY.keys())
+
+
+# ---------------------------------------------------------------------------
+# Abstract base class
+# ---------------------------------------------------------------------------
+
+class CVModel(abc.ABC):
+    """
+    Interface every model plugin must implement.
+
+    Lifecycle
+    ---------
+    1. cli_args(parser)  — add model-specific argparse flags
+    2. __init__(args)    — construct from parsed namespace
+    3. fit(X_train, y_train)
+    4. predict(X_test)   -> np.ndarray
+    5. extra_info()      -> dict   (optional; logged to stamp file)
+    """
+
     @classmethod
+    @abc.abstractmethod
     def cli_args(cls, parser: argparse.ArgumentParser) -> None:
-        g = parser.add_argument_group("template options")
-        # Add your model's hyperparameter flags here, e.g.:
-        g.add_argument("--template_param", type=float, default=1.0,
-                       help="Example hyperparameter (default: 1.0)")
-        g.add_argument("--n_components", type=int, default=500,
-                       help="PCA components (default: 500; --no_pca to skip)")
-        g.add_argument("--no_pca", action="store_true",
-                       help="Skip PCA and use raw scaled features")
+        """Add model-specific CLI arguments to *parser*."""
 
-    # ------------------------------------------------------------------
-    # 2. Constructor
-    # ------------------------------------------------------------------
+    @abc.abstractmethod
     def __init__(self, args: argparse.Namespace) -> None:
-        self._param = args.template_param
-        self._n_components = args.n_components
-        self._use_pca = not args.no_pca
+        """Construct the model from the parsed CLI namespace."""
 
-        # Internal state
-        self._scaler: StandardScaler | None = None
-        self._pca: PCA | None = None
-        self._model = None  # replace with your estimator type
-
-    # ------------------------------------------------------------------
-    # 3. Preprocessing helpers (copy-paste boilerplate, usually unchanged)
-    # ------------------------------------------------------------------
-    def _preprocess_train(self, X: np.ndarray) -> np.ndarray:
-        self._scaler = StandardScaler()
-        X_sc = self._scaler.fit_transform(X)
-        if self._use_pca:
-            n_comp = min(self._n_components, X.shape[0], X.shape[1])
-            print(f"[TEMPLATE] PCA n_components={n_comp}")
-            self._pca = PCA(n_components=n_comp, svd_solver="randomized", random_state=42)
-            return self._pca.fit_transform(X_sc)
-        return X_sc
-
-    def _preprocess_test(self, X: np.ndarray) -> np.ndarray:
-        X_sc = self._scaler.transform(X)
-        return self._pca.transform(X_sc) if self._use_pca else X_sc
-
-    # ------------------------------------------------------------------
-    # 4. fit / predict
-    # ------------------------------------------------------------------
+    @abc.abstractmethod
     def fit(self, X_train: np.ndarray, y_train: np.ndarray) -> None:
-        X_pp = self._preprocess_train(X_train)
-        print(f"[TEMPLATE] Fitting with param={self._param} ...")
+        """Fit the model on training data (already preprocessed)."""
 
-        # ------ Replace this block with your model ------
-        # from sklearn.linear_model import Ridge
-        # self._model = Ridge(alpha=self._param)
-        # self._model.fit(X_pp, y_train)
-        raise NotImplementedError("Replace this stub with your model's fit() call.")
-
+    @abc.abstractmethod
     def predict(self, X_test: np.ndarray) -> np.ndarray:
-        assert self._model is not None, "Call fit() before predict()"
-        return self._model.predict(self._preprocess_test(X_test))
+        """Return predictions for test data (already preprocessed)."""
 
-    # ------------------------------------------------------------------
-    # 5. Optional diagnostics for the stamp file
-    # ------------------------------------------------------------------
     def extra_info(self) -> dict:
-        return {"template_param": self._param, "use_pca": self._use_pca}
+        """
+        Return a dict of key/value pairs to include in the stamp file.
+        Override in subclasses to expose model-specific diagnostics
+        (e.g. OOB R², number of support vectors, etc.).
+        """
+        return {}

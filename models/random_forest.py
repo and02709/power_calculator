@@ -1,84 +1,93 @@
+from typing import Optional
 """
-models/lasso.py — Lasso Regression (L1).
+models/random_forest.py — PCA + Random Forest (original cv.py behaviour).
 
-Registered as "lasso".
-Usage: --model_file lasso  [--lasso_alpha A] [--lasso_max_iter N] [--n_components N | --no_pca]
+Registered as "random_forest".
+Usage: --model_file random_forest  [--n_components N] [--n_estimators N]
 """
 
-from __future__ import annotations
 
 import argparse
 
 import numpy as np
 from sklearn.decomposition import PCA
-from sklearn.linear_model import Lasso
+from sklearn.ensemble import RandomForestRegressor
 from sklearn.preprocessing import StandardScaler
 
 from models.base import CVModel, register
 
 
-@register("lasso")
-class LassoModel(CVModel):
+@register("random_forest")
+class RandomForestModel(CVModel):
 
     @classmethod
     def cli_args(cls, parser: argparse.ArgumentParser) -> None:
-        g = parser.add_argument_group("lasso options")
-        g.add_argument(
-            "--lasso_alpha", type=float, default=0.01,
-            help="L1 regularisation strength (default: 0.01)"
-        )
-        g.add_argument(
-            "--lasso_max_iter", type=int, default=5000,
-            help="Max iterations for coordinate descent (default: 5000)"
-        )
+        g = parser.add_argument_group("random_forest options")
         g.add_argument(
             "--n_components", type=int, default=500,
-            help="PCA components before Lasso (default: 500)"
+            help="PCA components before RF (default: 500)"
         )
         g.add_argument(
-            "--no_pca", action="store_true",
-            help="Skip PCA"
+            "--n_estimators", type=int, default=500,
+            help="Number of RF trees (default: 500)"
         )
 
     def __init__(self, args: argparse.Namespace) -> None:
-        self._alpha = args.lasso_alpha
-        self._max_iter = args.lasso_max_iter
         self._n_components = args.n_components
-        self._use_pca = not args.no_pca
-        self._scaler: StandardScaler | None = None
-        self._pca: PCA | None = None
-        self._model: Lasso | None = None
+        self._n_estimators = args.n_estimators
+        self._scaler: Optional[StandardScaler] = None
+        self._pca: Optional[PCA] = None
+        self._rf: Optional[RandomForestRegressor] = None
+        self._oob_r2: Optional[float] = None
+        self._var_explained: Optional[float] = None
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
 
     def _preprocess_train(self, X: np.ndarray) -> np.ndarray:
+        n_comp = min(self._n_components, X.shape[0], X.shape[1])
+        print(f"[RF] StandardScaler + PCA (n_components={n_comp}) ...")
         self._scaler = StandardScaler()
         X_sc = self._scaler.fit_transform(X)
-        if self._use_pca:
-            n_comp = min(self._n_components, X.shape[0], X.shape[1])
-            print(f"[Lasso] PCA n_components={n_comp}")
-            self._pca = PCA(n_components=n_comp, svd_solver="randomized", random_state=42)
-            return self._pca.fit_transform(X_sc)
-        return X_sc
+        self._pca = PCA(n_components=n_comp, svd_solver="randomized", random_state=42)
+        X_pca = self._pca.fit_transform(X_sc)
+        self._var_explained = float(
+            np.cumsum(self._pca.explained_variance_ratio_)[-1]
+        ) * 100
+        print(f"[RF] PCA variance explained: {self._var_explained:.1f}%")
+        return X_pca
 
     def _preprocess_test(self, X: np.ndarray) -> np.ndarray:
-        X_sc = self._scaler.transform(X)
-        return self._pca.transform(X_sc) if self._use_pca else X_sc
+        assert self._scaler is not None and self._pca is not None
+        return self._pca.transform(self._scaler.transform(X))
+
+    # ------------------------------------------------------------------
+    # CVModel interface
+    # ------------------------------------------------------------------
 
     def fit(self, X_train: np.ndarray, y_train: np.ndarray) -> None:
-        X_pp = self._preprocess_train(X_train)
-        print(f"[Lasso] Fitting Lasso (alpha={self._alpha}, max_iter={self._max_iter}) ...")
-        self._model = Lasso(alpha=self._alpha, max_iter=self._max_iter, random_state=42)
-        self._model.fit(X_pp, y_train)
-        n_nonzero = int(np.sum(self._model.coef_ != 0))
-        print(f"[Lasso] Non-zero coefficients: {n_nonzero} / {len(self._model.coef_)}")
+        X_pca = self._preprocess_train(X_train)
+        print(f"[RF] Fitting RandomForestRegressor (n_estimators={self._n_estimators}, n_jobs=-1) ...")
+        self._rf = RandomForestRegressor(
+            n_estimators=self._n_estimators,
+            n_jobs=-1,
+            random_state=42,
+            oob_score=True,
+        )
+        self._rf.fit(X_pca, y_train)
+        self._oob_r2 = self._rf.oob_score_
+        print(f"[RF] OOB R²: {self._oob_r2:.4f}")
 
     def predict(self, X_test: np.ndarray) -> np.ndarray:
-        assert self._model is not None
-        return self._model.predict(self._preprocess_test(X_test))
+        assert self._rf is not None
+        return self._rf.predict(self._preprocess_test(X_test))
 
     def extra_info(self) -> dict:
-        n_nz = int(np.sum(self._model.coef_ != 0)) if self._model is not None else None
         return {
-            "lasso_alpha": self._alpha,
-            "use_pca": self._use_pca,
-            "n_nonzero_coef": n_nz,
+            "oob_r2": self._oob_r2,
+            "pca_var_explained_pct": self._var_explained,
+            "n_components_actual": (
+                self._pca.n_components_ if self._pca is not None else None
+            ),
         }

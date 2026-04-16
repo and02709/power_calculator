@@ -1,3 +1,4 @@
+from typing import Optional
 """
 models/TEMPLATE.py — Copy this file to add a new model plugin.
 
@@ -23,7 +24,6 @@ Steps
 That's it.  No changes to cv.py, cv.sh, or any other file are needed.
 """
 
-from __future__ import annotations
 
 import argparse
 
@@ -62,8 +62,8 @@ class TemplateModel(CVModel):
         self._use_pca = not args.no_pca
 
         # Internal state
-        self._scaler: StandardScaler | None = None
-        self._pca: PCA | None = None
+        self._scaler: Optional[StandardScaler] = None
+        self._pca: Optional[PCA] = None
         self._model = None  # replace with your estimator type
 
     # ------------------------------------------------------------------

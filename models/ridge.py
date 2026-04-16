@@ -1,3 +1,4 @@
+from typing import Optional
 """
 models/ridge.py — Ridge Regression (PCA preprocessing optional).
 
@@ -5,7 +6,6 @@ Registered as "ridge".
 Usage: --model_file ridge  [--ridge_alpha A] [--n_components N | --no_pca]
 """
 
-from __future__ import annotations
 
 import argparse
 
@@ -40,9 +40,9 @@ class RidgeModel(CVModel):
         self._alpha = args.ridge_alpha
         self._n_components = args.n_components
         self._use_pca = not args.no_pca
-        self._scaler: StandardScaler | None = None
-        self._pca: PCA | None = None
-        self._model: Ridge | None = None
+        self._scaler: Optional[StandardScaler] = None
+        self._pca: Optional[PCA] = None
+        self._model: Optional[Ridge] = None
 
     def _preprocess_train(self, X: np.ndarray) -> np.ndarray:
         self._scaler = StandardScaler()

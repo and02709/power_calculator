@@ -1,60 +1,62 @@
+from typing import Optional
 """
-models/gradient_boosting.py — Gradient Boosting Regressor (sklearn).
+models/svr.py — Support Vector Regression.
 
-Registered as "gradient_boosting".
-Usage: --model_file gradient_boosting  [--gb_n_estimators N] [--gb_lr LR] ...
+Registered as "svr".
+Usage: --model_file svr  [--svr_C C] [--svr_kernel K] [--svr_epsilon E] [--n_components N | --no_pca]
 
-For a faster drop-in, install lightgbm/xgboost and swap the underlying
-estimator while keeping this CVModel shell.
+Note: SVR can be slow on large datasets. PCA (default: 200 components) is
+strongly recommended to keep training tractable.
 """
 
-from __future__ import annotations
 
 import argparse
 
 import numpy as np
 from sklearn.decomposition import PCA
-from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.preprocessing import StandardScaler
+from sklearn.svm import SVR
 
 from models.base import CVModel, register
 
 
-@register("gradient_boosting")
-class GradientBoostingModel(CVModel):
+@register("svr")
+class SVRModel(CVModel):
 
     @classmethod
     def cli_args(cls, parser: argparse.ArgumentParser) -> None:
-        g = parser.add_argument_group("gradient_boosting options")
-        g.add_argument("--gb_n_estimators", type=int,   default=300,
-                       help="Number of boosting stages (default: 300)")
-        g.add_argument("--gb_lr",           type=float, default=0.05,
-                       help="Learning rate / shrinkage (default: 0.05)")
-        g.add_argument("--gb_max_depth",    type=int,   default=4,
-                       help="Max tree depth (default: 4)")
-        g.add_argument("--gb_subsample",    type=float, default=0.8,
-                       help="Fraction of samples per tree (default: 0.8)")
-        g.add_argument("--n_components",    type=int,   default=200,
-                       help="PCA components (default: 200)")
+        g = parser.add_argument_group("svr options")
+        g.add_argument("--svr_C",       type=float, default=1.0,
+                       help="Regularisation C (default: 1.0)")
+        g.add_argument("--svr_kernel",  type=str,   default="rbf",
+                       choices=["rbf", "linear", "poly", "sigmoid"],
+                       help="SVR kernel (default: rbf)")
+        g.add_argument("--svr_epsilon", type=float, default=0.1,
+                       help="Epsilon in ε-SVR tube (default: 0.1)")
+        g.add_argument("--svr_gamma",   type=str,   default="scale",
+                       help="Kernel coefficient for rbf/poly/sigmoid (default: scale)")
+        g.add_argument("--n_components", type=int, default=200,
+                       help="PCA components before SVR (default: 200)")
         g.add_argument("--no_pca", action="store_true", help="Skip PCA")
 
     def __init__(self, args: argparse.Namespace) -> None:
-        self._n_estimators = args.gb_n_estimators
-        self._lr           = args.gb_lr
-        self._max_depth    = args.gb_max_depth
-        self._subsample    = args.gb_subsample
+        self._C = args.svr_C
+        self._kernel = args.svr_kernel
+        self._epsilon = args.svr_epsilon
+        self._gamma = args.svr_gamma
         self._n_components = args.n_components
-        self._use_pca      = not args.no_pca
-        self._scaler: StandardScaler | None = None
-        self._pca: PCA | None = None
-        self._model: GradientBoostingRegressor | None = None
+        self._use_pca = not args.no_pca
+        self._scaler: Optional[StandardScaler] = None
+        self._pca: Optional[PCA] = None
+        self._model: Optional[SVR] = None
+        self._n_sv: Optional[int] = None
 
     def _preprocess_train(self, X: np.ndarray) -> np.ndarray:
         self._scaler = StandardScaler()
         X_sc = self._scaler.fit_transform(X)
         if self._use_pca:
             n_comp = min(self._n_components, X.shape[0], X.shape[1])
-            print(f"[GB] PCA n_components={n_comp}")
+            print(f"[SVR] PCA n_components={n_comp}")
             self._pca = PCA(n_components=n_comp, svd_solver="randomized", random_state=42)
             return self._pca.fit_transform(X_sc)
         return X_sc
@@ -65,19 +67,13 @@ class GradientBoostingModel(CVModel):
 
     def fit(self, X_train: np.ndarray, y_train: np.ndarray) -> None:
         X_pp = self._preprocess_train(X_train)
-        print(
-            f"[GB] GradientBoostingRegressor n_estimators={self._n_estimators} "
-            f"lr={self._lr} max_depth={self._max_depth} subsample={self._subsample}"
-        )
-        self._model = GradientBoostingRegressor(
-            n_estimators=self._n_estimators,
-            learning_rate=self._lr,
-            max_depth=self._max_depth,
-            subsample=self._subsample,
-            random_state=42,
-        )
+        print(f"[SVR] Fitting SVR (C={self._C}, kernel={self._kernel}, epsilon={self._epsilon}) ...")
+        self._model = SVR(C=self._C, kernel=self._kernel,
+                         epsilon=self._epsilon, gamma=self._gamma)
         self._model.fit(X_pp, y_train)
-        print(f"[GB] Train R²: {self._model.train_score_[-1]:.4f}")
+        self._n_sv = int(self._model.n_support_[0]) if hasattr(self._model, "n_support_") else None
+        if self._n_sv is not None:
+            print(f"[SVR] Support vectors: {self._n_sv}")
 
     def predict(self, X_test: np.ndarray) -> np.ndarray:
         assert self._model is not None
@@ -85,8 +81,9 @@ class GradientBoostingModel(CVModel):
 
     def extra_info(self) -> dict:
         return {
-            "gb_n_estimators": self._n_estimators,
-            "gb_lr": self._lr,
-            "gb_max_depth": self._max_depth,
+            "svr_C": self._C,
+            "svr_kernel": self._kernel,
+            "svr_epsilon": self._epsilon,
+            "n_support_vectors": self._n_sv,
             "use_pca": self._use_pca,
         }
