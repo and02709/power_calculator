@@ -53,6 +53,22 @@ sbatch PWR.sh \
 
 `--wrkdir`, `--pconndir`, and `--filedir` all default to `$PWD`. `--nrep` defaults to `10` and `--ntime` to `1000`.
 
+A more complex example is given here:
+
+```bash
+sbatch PWR.sh \
+  --pconnref   /path/to/reference.pconn.nii \
+  --singletemp 0 \
+  --numtemp    5 \
+  --kfolds     10 \
+  --epsilon    0.5 \
+  --wrkdir     /scratch.global/myuser/pwr_output \
+  --pconndir   /path/to/pconn_subjects \
+  --filedir    /path/to/power_calculator \
+  --nrep       50 \
+  --ntime      2000
+```
+
 ---
 
 ## Usage
