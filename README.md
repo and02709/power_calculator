@@ -17,7 +17,7 @@ This pipeline estimates statistical power for brain imaging studies by asking: *
 1. **Generating a sample-size grid** — a logarithmically spaced set of 10 sample sizes from N=100 to N=2000, with each size representing the number of simulated individuals' brain images
 2. **Simulating functional connectivity** — for each index, a covariance matrix is simulated by drawing a reference image `.pconn.nii` decomposing using eigendecomposition, and simulating a timeseries from the resulting eigenvalues
 3. **Combining across replicates** — individual covariance matrices are vectorized and stacked into full arrays per sample size
-4. **Cross-validating** — k-fold CV is run using a pluggable ML model (default: Random Forest with PCA) to predict phenotypes from FC features
+4. **Cross-validating** — k-fold CV is run using a pluggable ML model (default: Random Forest) to predict phenotypes from FC features
 5. **Aggregating and plotting** — per-fold R² metrics are averaged across folds and replicates per sample size, and a power curve is produced
 
 The primary entry point is `PWR.sh`, which orchestrates all steps as a chain of dependent SLURM array jobs.
@@ -51,9 +51,9 @@ sbatch PWR.sh \
   --epsilon    1.0
 ```
 
-`--wrkdir`, `--pconndir`, and `--filedir` all default to `$PWD`. `--nrep` defaults to `10` and `--ntime` to `1000`.
+`--wrkdir`, `--pconndir`, and `--filedir` all default to `$PWD`. `--nrep` defaults to `10` and `--ntime` to `1000`. PCA preprocessing is off by default; add `--pca` to enable it.
 
-A more complex example is given here:
+A more complex example overriding all defaults and enabling PCA:
 
 ```bash
 sbatch PWR.sh \
@@ -66,7 +66,9 @@ sbatch PWR.sh \
   --pconndir   /path/to/pconn_subjects \
   --filedir    /path/to/power_calculator \
   --nrep       50 \
-  --ntime      2000
+  --ntime      2000 \
+  --pca \
+  --n-components 200
 ```
 
 ---
@@ -79,31 +81,32 @@ sbatch PWR.sh [OPTIONS]
 
 ### Required Arguments
 
-| Flag            | Description                                                                       |
-|-----------------|-----------------------------------------------------------------------------------|
-| `--pconnref`    | Path to the reference `.pconn.nii` file used for the dimesnions or if a single template is invoked               |
-| `--singletemp`  | `0` = simulate imaging data by drawing multiple pconn files to serve as templates, `1` = only use one pconn template for all simulated samples                       |
-| `--numtemp`     | Number of templates to be averaged for use in the eigendecomposition |
-| `--kfolds`      | Number of cross-validation folds                                                  |
-| `--epsilon`     | Epsilon threshold for covariance regularization (float >= 0)                      |
+| Flag            | Description                                                                                                      |
+|-----------------|------------------------------------------------------------------------------------------------------------------|
+| `--pconnref`    | Path to the reference `.pconn.nii` file used for the dimensions or if a single template is invoked              |
+| `--singletemp`  | `0` = simulate imaging data by drawing multiple pconn files to serve as templates, `1` = only use one pconn template for all simulated samples |
+| `--numtemp`     | Number of templates to be averaged for use in the eigendecomposition                                            |
+| `--kfolds`      | Number of cross-validation folds                                                                                 |
+| `--epsilon`     | Epsilon threshold for covariance regularization (float >= 0)                                                     |
 
 ### Optional Arguments (with defaults)
 
 | Flag          | Default  | Description                                                        |
 |---------------|----------|--------------------------------------------------------------------|
 | `--wrkdir`    | `$PWD`   | Working directory where all outputs will be written                |
-| `--pconndir`  | `$PWD`   | Directory containing subject `.pconn.nii` files to be used as templates                   |
+| `--pconndir`  | `$PWD`   | Directory containing subject `.pconn.nii` files to be used as templates |
 | `--filedir`   | `$PWD`   | Directory containing the pipeline scripts (e.g. `cv.sh`, `cv.py`) |
-| `--nrep`      | `10`     | Number of simulation time series to be averaged for a given subject                         |
-| `--ntime`     | `1000`   | Number of timepoints to be simulated for the brain imaging data                        |
+| `--nrep`      | `10`     | Number of simulation time series to be averaged for a given subject |
+| `--ntime`     | `1000`   | Number of timepoints to be simulated for the brain imaging data    |
 
 ### Model Selection
 
-| Flag              | Default          | Description                                              |
-|-------------------|------------------|----------------------------------------------------------|
-| `--model`         | `random_forest`  | Machine-Learning model to use for CV (see available models below)      |
-| `--n-components`  | `500`            | Number of PCA components fed into the model              |
-| `--n-estimators`  | `500`            | Number of trees (Random Forest / Gradient Boosting only) |
+| Flag              | Default         | Description                                                              |
+|-------------------|-----------------|--------------------------------------------------------------------------|
+| `--model`         | `random_forest` | Machine-learning model to use for CV (see available models below)        |
+| `--pca`           | off             | Enable PCA preprocessing before the model (flag, no value needed)        |
+| `--n-components`  | `500`           | Number of PCA components; only used if `--pca` is set                    |
+| `--n-estimators`  | `500`           | Number of trees (Random Forest / Gradient Boosting only)                 |
 
 ### Model Hyperparameters
 
@@ -141,6 +144,24 @@ sbatch /scratch.global/and02709/power_calculator/PWR.sh \
   --epsilon    1
 ```
 
+To run the same example with PCA preprocessing enabled:
+
+```bash
+sbatch /scratch.global/and02709/power_calculator/PWR.sh \
+  --wrkdir     /scratch.global/and02709/p2 \
+  --pconndir   /projects/standard/feczk001/shared/projects/ABCD/gordon_sets/data/group2_10minonly_FD0p1 \
+  --pconnref   /projects/standard/feczk001/shared/projects/ABCD/gordon_sets/data/group2_10minonly_FD0p1/sub-NDARINV00J52GPG_ses-baselineYear1Arm1_task-rest_bold_roi-Gordon2014FreeSurferSubcortical_timeseries.ptseries.nii_5_minutes_of_data_at_FD_0.2.pconn.nii \
+  --singletemp 0 \
+  --numtemp    1 \
+  --filedir    /scratch.global/and02709/power_calculator \
+  --kfolds     5 \
+  --nrep       20 \
+  --ntime      2000 \
+  --epsilon    1 \
+  --pca \
+  --n-components 500
+```
+
 ### What happens step by step
 
 **Step 1 — Setup (`pwr_setup.sh`)**
@@ -162,7 +183,7 @@ pwr_data/dat_size_<N>_index_<i>_cov.npy
 pwr_data/dat_size_<N>_index_<i>_meta.json
 ```
 
-In single-temperature mode (`--singletemp 1`), `pwr_process_chunk_single_z.py` is used instead, simulating from a single fixed reference pconn with `--use_one_target`.
+In single-template mode (`--singletemp 1`), `pwr_process_chunk_single_z.py` is used instead, simulating from a single fixed reference pconn with `--use_one_target`.
 
 **Step 3 — Combine data (`combine_data.sh`)**
 
@@ -184,7 +205,7 @@ pwr_data/full_<N>_fold_<k>_split.npz
 
 **Step 6 — Cross-validation (`cv.sh`)**
 
-An array job runs one task per split file. Each task loads the covariance matrix, applies StandardScaler + PCA (default: 500 components), trains the model on the training split, and evaluates on the test split. The primary metric is **R²** (coefficient of determination). Results are written as:
+An array job runs one task per split file. Each task loads the covariance matrix, applies StandardScaler (and optionally PCA if `--pca` was passed), trains the model on the training split, and evaluates on the test split. The primary metric is **R²** (coefficient of determination). Results are written as:
 
 ```
 pwr_data/data_<N>_fold_<k>_cvr2.npy
@@ -221,9 +242,9 @@ In the example above, R² rises from near zero at N=100 to ~0.44 at N=2000. The 
 
 | Step | Script                                            | Description                                                             |
 |------|---------------------------------------------------|-------------------------------------------------------------------------|
-| 1    | `pwr_setup.sh` / `pwr_setup.py`                  | Generates `pwr_index_file.txt` with the (size, replicate) index grid    |
+| 1    | `pwr_setup.sh` / `pwr_setup.py`                  | Generates `pwr_index_file.txt` with the (size, subject) index grid      |
 | 2    | `pwr_sub_python.sh` / `pwr_sub_python_single.sh` | Array job: simulates FC covariance matrices from the reference pconn    |
-| 3    | `combine_data.sh` / `combine_data.py`            | Stacks per-replicate covariance files into full matrices per sample size |
+| 3    | `combine_data.sh` / `combine_data.py`            | Stacks per-subject covariance files into full matrices per sample size  |
 | 4    | `cvGen.sh` / `cvGen.py`                          | Generates k-fold train/test splits (`.npz`) for each sample size        |
 | 5    | `setupCVmetrics.sh` / `setupCVmetrics.py`        | Initializes metric output structures                                    |
 | 6    | `cv.sh` / `cv.py`                                | Array job: runs CV for each fold/sample-size combination                |
@@ -235,17 +256,23 @@ A `job_manifest.tsv` is written to `$WRKDIR/OUT/` recording the SLURM job ID, st
 
 ## Available ML Models
 
-Models live in the `models/` directory. Each is a self-contained plugin implementing `CVModel` from `models/base.py`. All models apply StandardScaler + PCA as a preprocessing step by default (PCA can be skipped with `--no_pca` where supported).
+Models live in the `models/` directory. Each is a self-contained plugin implementing `CVModel` from `models/base.py`. All models support optional PCA preprocessing, controlled globally via the `--pca` flag in `PWR.sh`. PCA is **off by default** for all models.
 
-| Model name          | Description                         |
-|---------------------|-------------------------------------|
-| `random_forest`     | PCA + Random Forest (default)       |
-| `ridge`             | PCA + Ridge Regression              |
-| `lasso`             | PCA + Lasso Regression              |
-| `elastic_net`       | PCA + ElasticNet                    |
-| `svr`               | PCA + Support Vector Regression     |
-| `neural_network`    | PCA + MLP Regressor                 |
-| `gradient_boosting` | PCA + Gradient Boosting             |
+| Model name          | Description                  |
+|---------------------|------------------------------|
+| `random_forest`     | Random Forest                |
+| `ridge`             | Ridge Regression             |
+| `lasso`             | Lasso Regression             |
+| `elastic_net`       | ElasticNet                   |
+| `svr`               | Support Vector Regression    |
+| `neural_network`    | MLP Regressor                |
+| `gradient_boosting` | Gradient Boosting            |
+
+To run any model with PCA dimensionality reduction:
+
+```bash
+sbatch PWR.sh ... --model ridge --pca --n-components 200
+```
 
 ### Adding a Custom Model
 
@@ -254,7 +281,7 @@ Models live in the `models/` directory. Each is a self-contained plugin implemen
 3. Decorate the class with `@register("<your_model_name>")`
 4. Pass `--model <your_model_name>` to `PWR.sh`
 
-No changes to `cv.py`, `cv.sh`, or `PWR.sh` are required.
+The `--pca` flag is handled automatically by the base infrastructure — your model receives `args.pca` and `args.n_components` like all built-in models. No changes to `cv.py`, `cv.sh`, or `PWR.sh` are required.
 
 ---
 
@@ -271,8 +298,8 @@ $WRKDIR/
 ├── metrics_summary.pkl                     # Mean ± SD R² per sample size
 ├── pconn_template_lookup.csv               # Record of pconn files used per simulation
 └── pwr_data/
-    ├── pwr_index_file.txt                  # (size, replicate) index grid (~8,506 rows)
-    ├── dat_size_*_index_*_cov.npy          # Per-replicate covariance matrices
+    ├── pwr_index_file.txt                  # (size, subject) index grid (~8,506 rows)
+    ├── dat_size_*_index_*_cov.npy          # Per-subject covariance matrices
     ├── dat_size_*_index_*_meta.json        # Simulation metadata (pconn paths, params)
     ├── full_*_cov.npy                      # Stacked covariance matrices per sample size
     ├── full_*_fold_*_split.npz             # CV train/test splits
@@ -315,4 +342,5 @@ power_calculator/
 ## License
 
 [MIT licensed](LICENSE).
+
 
