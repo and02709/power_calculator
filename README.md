@@ -139,7 +139,17 @@ To have SLURM dispatch it without dependency on your terminal being open these s
 
 ### Running on a New HPC (No Module Available)
 
-If you're on an HPC system that doesn't have the GDCGenomicsQC module installed, you'll need to set it up manually:
+sbatch /scratch.global/and02709/power_calculator/PWR.sh \
+  --wrkdir     /scratch.global/and02709/p2 \
+  --pconndir   /projects/standard/feczk001/shared/projects/ABCD/gordon_sets/data/group2_10minonly_FD0p1 \
+  --pconnref   /projects/standard/feczk001/shared/projects/ABCD/gordon_sets/data/group2_10minonly_FD0p1/sub-NDARINV00J52GPG_ses-baselineYear1Arm1_task-rest_bold_roi-Gordon2014FreeSurferSubcortical_timeseries.ptseries.nii_5_minutes_of_data_at_FD_0.2.pconn.nii \
+  --singletemp 0 \
+  --numtemp    1 \
+  --filedir    /scratch.global/and02709/power_calculator \
+  --kfolds     5 \
+  --nrep       20 \
+  --ntime      2 \
+  --epsilon    100
 
 #### 1. Clone the Repository
 ```bash
