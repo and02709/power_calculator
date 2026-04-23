@@ -148,8 +148,8 @@ sbatch /scratch.global/and02709/power_calculator/PWR.sh \
   --filedir    /scratch.global/and02709/power_calculator \
   --kfolds     5 \
   --nrep       20 \
-  --ntime      2 \
-  --epsilon    100
+  --ntime      2000 \
+  --epsilon    1
 
 #### 1. Clone the Repository
 ```bash
