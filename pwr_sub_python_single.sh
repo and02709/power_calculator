@@ -52,6 +52,7 @@ echo "[INFO] Processing Rows: $START to $END"
     "$PCONNDIR" \
     "$PCONNREF" \
     "$NREP" \
+    "$NTIME" \
     "placeholder" \
     --n_time "$N_TIME" \
     --use_one_target \
