@@ -54,6 +54,7 @@ echo "[INFO] Processing Rows: $START to $END"
     "$PCONNREF" \
     "$NUMTEMP" \
     "$NREP" \
+    "$NTIME" \
     "$SINGLEPCONN" \
     --n_time "$N_TIME" \
     --use_one_target \
