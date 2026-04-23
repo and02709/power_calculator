@@ -123,7 +123,7 @@ sbatch PWR.sh [OPTIONS]
 
 ## Worked Example
 
-This example uses an ABCD Study participant pconn file as the reference and runs in multi-temperature mode with 5 CV folds and 20 repetitions.
+This example uses an ABCD Study participant pconn file as the reference and runs in multi-template mode with 5 CV folds and 20 time series repetitions.
 
 ### Submitting the job
 
