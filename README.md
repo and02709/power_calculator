@@ -166,7 +166,7 @@ In single-temperature mode (`--singletemp 1`), `pwr_process_chunk_single_z.py` i
 
 **Step 3 — Combine data (`combine_data.sh`)**
 
-`combine_data.py` stacks all per-replicate covariance `.npy` files for each sample size into a single combined matrix:
+`combine_data.py` stacks all subject covariance `.npy` files for each sample size into a single combined matrix:
 
 ```
 pwr_data/full_<N>_cov.npy
