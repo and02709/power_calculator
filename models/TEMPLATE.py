@@ -52,7 +52,6 @@ class TemplateModel(CVModel):
                        help="PCA components (default: 500; only used if --pca is set)")
         g.add_argument("--pca", action="store_true", default=False,
                        help="Apply PCA preprocessing (default: off)")
-                       help="Skip PCA and use raw scaled features")
 
     # ------------------------------------------------------------------
     # 2. Constructor
