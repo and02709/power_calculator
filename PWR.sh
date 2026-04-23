@@ -19,7 +19,8 @@ NUMTEMP=$5
 FILEDIR=$6
 KFOLDS=$7
 NREP=$8
-EPSILON=$9
+NTIME=$9
+EPSILON=${10}
 
 # ---------------------------------------------------------------------------
 # Model selection — pass as environment variable when calling sbatch:
