@@ -51,7 +51,9 @@ if [[ "$USE_PCA" == "true" ]]; then
   PCA_FLAG="--pca"
 fi
 
-module load python3/3.10.4-anaconda2023.03
+module purge || true
+source /projects/standard/faird/shared/code/external/envs/miniconda3/load_miniconda3.sh
+conda activate FC_stability
 
 python3 $FILEDIR/cv.py \
     $WRKDIR $FILEDIR $NUMFILES $KFOLDS $EPSILON $INDEX \
