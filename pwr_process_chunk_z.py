@@ -130,6 +130,7 @@ def main():
     ap.add_argument("PCONNREF")
     ap.add_argument("NUMTEMP", type=int)
     ap.add_argument("NREP", type=int)
+    ap.add_argument("NTIME", type=int)
     ap.add_argument("UNUSED_ARG")
     ap.add_argument("--n_time", type=int, default=1000)
     ap.add_argument("--pconn1")
