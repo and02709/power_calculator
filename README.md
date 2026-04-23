@@ -92,10 +92,10 @@ sbatch PWR.sh [OPTIONS]
 | Flag          | Default  | Description                                                        |
 |---------------|----------|--------------------------------------------------------------------|
 | `--wrkdir`    | `$PWD`   | Working directory where all outputs will be written                |
-| `--pconndir`  | `$PWD`   | Directory containing subject `.pconn.nii` files                    |
+| `--pconndir`  | `$PWD`   | Directory containing subject `.pconn.nii` files to be used as templates                   |
 | `--filedir`   | `$PWD`   | Directory containing the pipeline scripts (e.g. `cv.sh`, `cv.py`) |
-| `--nrep`      | `10`     | Number of simulation repetitions per index                         |
-| `--ntime`     | `1000`   | Number of timepoints to draw per simulation                        |
+| `--nrep`      | `10`     | Number of simulation time series to be averaged for a given subject                         |
+| `--ntime`     | `1000`   | Number of timepoints to be simulated for the brain imaging data                        |
 
 ### Model Selection
 
