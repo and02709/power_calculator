@@ -28,6 +28,7 @@ INDEX=${SLURM_ARRAY_TASK_ID}
 #   Default: random_forest  (preserves original behaviour)
 # ---------------------------------------------------------------------------
 MODEL_FILE=${MODEL_FILE:-random_forest}
+USE_PCA=${USE_PCA:-false}
 
 # ---------------------------------------------------------------------------
 # Model-specific hyperparameter overrides (ignored if not relevant to model)
@@ -44,6 +45,12 @@ NN_LR=${NN_LR:-0.001}              # neural_network
 GB_N_ESTIMATORS=${GB_N_ESTIMATORS:-300}  # gradient_boosting
 GB_LR=${GB_LR:-0.05}               # gradient_boosting
 
+# Build --pca flag if enabled
+PCA_FLAG=""
+if [[ "$USE_PCA" == "true" ]]; then
+  PCA_FLAG="--pca"
+fi
+
 module load python3/3.10.4-anaconda2023.03
 
 python3 $FILEDIR/cv.py \
@@ -59,4 +66,5 @@ python3 $FILEDIR/cv.py \
     --nn_hidden_layers "$NN_HIDDEN_LAYERS" \
     --nn_lr        $NN_LR \
     --gb_n_estimators $GB_N_ESTIMATORS \
-    --gb_lr        $GB_LR
+    --gb_lr        $GB_LR \
+    $PCA_FLAG

@@ -38,6 +38,7 @@ Optional model selection:
                                         elastic_net, svr, neural_net, gradient_boosting
   --n-components INT           PCA components (default: 500)
   --n-estimators INT           RF estimators (default: 500)
+  --pca                        Enable PCA preprocessing (default: off)
 
 Optional model hyperparameters:
   --ridge-alpha   FLOAT        Ridge alpha (default: 1.0)
@@ -76,6 +77,7 @@ NTIME=1000
 EPSILON=""
 
 MODEL_FILE="${MODEL_FILE:-random_forest}"
+USE_PCA="${USE_PCA:-false}"
 N_COMPONENTS="${N_COMPONENTS:-500}"
 N_ESTIMATORS="${N_ESTIMATORS:-500}"
 RIDGE_ALPHA="${RIDGE_ALPHA:-1.0}"
@@ -108,6 +110,7 @@ while [[ $# -gt 0 ]]; do
     --ntime)        NTIME="$2";            shift 2 ;;
     --epsilon)      EPSILON="$2";          shift 2 ;;
     --model)        MODEL_FILE="$2";       shift 2 ;;
+    --pca)          USE_PCA="true";        shift 1 ;;
     --n-components) N_COMPONENTS="$2";     shift 2 ;;
     --n-estimators) N_ESTIMATORS="$2";     shift 2 ;;
     --ridge-alpha)  RIDGE_ALPHA="$2";      shift 2 ;;
@@ -183,6 +186,7 @@ echo "[INFO] NREP=$NREP"
 echo "[INFO] NTIME=$NTIME"
 echo "[INFO] EPSILON=$EPSILON"
 echo "[INFO] MODEL_FILE=$MODEL_FILE"
+echo "[INFO] USE_PCA=$USE_PCA"
 echo "[INFO] N_COMPONENTS=$N_COMPONENTS"
 echo "[INFO] N_ESTIMATORS=$N_ESTIMATORS"
 echo "[INFO] RIDGE_ALPHA=$RIDGE_ALPHA"
@@ -343,7 +347,7 @@ fi
 # ---------------------------------------------------------------------------
 submit "cv" "2:00:00" "32GB" "2" -- \
   --array=1-"$NUMFFILES" --wait \
-  --export=ALL,MODEL_FILE="$MODEL_FILE",N_COMPONENTS="$N_COMPONENTS",N_ESTIMATORS="$N_ESTIMATORS",RIDGE_ALPHA="$RIDGE_ALPHA",LASSO_ALPHA="$LASSO_ALPHA",EN_ALPHA="$EN_ALPHA",EN_L1_RATIO="$EN_L1_RATIO",SVR_C="$SVR_C",NN_HIDDEN_LAYERS="$NN_HIDDEN_LAYERS",NN_LR="$NN_LR",GB_N_ESTIMATORS="$GB_N_ESTIMATORS",GB_LR="$GB_LR" \
+  --export=ALL,MODEL_FILE="$MODEL_FILE",USE_PCA="$USE_PCA",N_COMPONENTS="$N_COMPONENTS",N_ESTIMATORS="$N_ESTIMATORS",RIDGE_ALPHA="$RIDGE_ALPHA",LASSO_ALPHA="$LASSO_ALPHA",EN_ALPHA="$EN_ALPHA",EN_L1_RATIO="$EN_L1_RATIO",SVR_C="$SVR_C",NN_HIDDEN_LAYERS="$NN_HIDDEN_LAYERS",NN_LR="$NN_LR",GB_N_ESTIMATORS="$GB_N_ESTIMATORS",GB_LR="$GB_LR" \
   -- \
   "$FILEDIR/cv.sh" "$WRKDIR" "$FILEDIR" "$NUMFILES" "$KFOLDS" "$EPSILON"
 
