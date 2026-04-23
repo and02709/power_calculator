@@ -81,9 +81,9 @@ sbatch PWR.sh [OPTIONS]
 
 | Flag            | Description                                                                       |
 |-----------------|-----------------------------------------------------------------------------------|
-| `--pconnref`    | Path to the reference `.pconn.nii` file used to seed FC simulations               |
-| `--singletemp`  | `0` = multi-temperature mode, `1` = single-temperature mode                       |
-| `--numtemp`     | Number of temperatures to simulate (integer >= 1; only used if `--singletemp 0`) |
+| `--pconnref`    | Path to the reference `.pconn.nii` file used for the dimesnions or if a single template is invoked               |
+| `--singletemp`  | `0` = simulate imaging data by drawing multiple pconn files to serve as templates, `1` = only use one pconn template for all simulated samples                       |
+| `--numtemp`     | Number of templates to be averaged for use in the eigendecomposition |
 | `--kfolds`      | Number of cross-validation folds                                                  |
 | `--epsilon`     | Epsilon threshold for covariance regularization (float >= 0)                      |
 
