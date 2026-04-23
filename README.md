@@ -155,7 +155,7 @@ Each size N is repeated N times (one replicate per row), yielding 8,506 total in
 
 **Step 2 — Simulation array jobs (`pwr_sub_python.sh`)**
 
-Each array job processes a chunk of 100 rows from the index file. For each row, `pwr_process_chunk_z.py` loads the reference pconn, draws `--ntime` timepoints (2000 in this example), and computes an empirical FC covariance matrix. With `--nrep 20`, each (size, index) combination is simulated 20 times. Output files are written per replicate:
+Each array job processes a chunk of 100 rows from the index file. For each row, `pwr_process_chunk_z.py` loads the reference pconn, draws `--ntime` timepoints (2000 in this example), and computes an empirical FC covariance matrix. With `--nrep 20`, each (size, index) combination is simulated via time series 20 times. Output files are written per subject:
 
 ```
 pwr_data/dat_size_<N>_index_<i>_cov.npy
