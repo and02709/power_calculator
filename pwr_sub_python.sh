@@ -19,6 +19,7 @@ PCONNDIR="${5}"
 PCONNREF="${6}"
 NUMTEMP="${7}"
 NREP="${8}"
+NTIME="${9}"
 
 TASK_ID="${SLURM_ARRAY_TASK_ID}"
 
