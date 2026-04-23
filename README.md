@@ -14,9 +14,9 @@ A brain imaging power calculator developed by the Masonic Institute of the Devel
 
 This pipeline estimates statistical power for brain imaging studies by asking: *given a dataset of a certain size, how well can functional connectivity predict a phenotype of interest?* It does this by:
 
-1. **Generating a sample-size grid** — a logarithmically spaced set of 10 sample sizes from N=100 to N=2000, with each size replicated by itself (e.g. size 100 has 100 replicates, size 2000 has 2000 replicates), producing a total index grid of ~8,506 simulation jobs
-2. **Simulating functional connectivity** — for each index, a covariance matrix is simulated by drawing timepoints from the reference `.pconn.nii` file and computing empirical FC
-3. **Combining across replicates** — individual covariance matrices are stacked into full arrays per sample size
+1. **Generating a sample-size grid** — a logarithmically spaced set of 10 sample sizes from N=100 to N=2000, with each size representing the number of simulated individuals' brain images
+2. **Simulating functional connectivity** — for each index, a covariance matrix is simulated by drawing a reference image `.pconn.nii` decomposing using eigendecomposition, and simulating a timeseries from the resulting eigenvalues
+3. **Combining across replicates** — individual covariance matrices are vectorized and stacked into full arrays per sample size
 4. **Cross-validating** — k-fold CV is run using a pluggable ML model (default: Random Forest with PCA) to predict phenotypes from FC features
 5. **Aggregating and plotting** — per-fold R² metrics are averaged across folds and replicates per sample size, and a power curve is produced
 
