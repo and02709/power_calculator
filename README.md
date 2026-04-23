@@ -1,5 +1,5 @@
 <p align="center">
-  <i>  A quality control pipeline for genomics data developed by the Masonic Institute of the Developing Brain at the University of Minnesota.</a></i>
+  <i>  A pipeline for simulating brain imaging data and associated phenotypes for power calculations.</a></i>
   <br/>
 </p>
 
