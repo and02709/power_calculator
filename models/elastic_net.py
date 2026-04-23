@@ -3,7 +3,7 @@ from typing import Optional
 models/elastic_net.py — ElasticNet (L1 + L2).
 
 Registered as "elastic_net".
-Usage: --model_file elastic_net  [--en_alpha A] [--en_l1_ratio R] [--n_components N | --no_pca]
+Usage: --model_file elastic_net  [--en_alpha A] [--en_l1_ratio R] [--n_components N ] [--pca]
 """
 
 
@@ -39,14 +39,15 @@ class ElasticNetModel(CVModel):
             "--n_components", type=int, default=500,
             help="PCA components (default: 500)"
         )
-        g.add_argument("--no_pca", action="store_true", help="Skip PCA")
+        g.add_argument("--pca", action="store_true", default=False,
+                       help="Apply PCA preprocessing (default: off)")
 
     def __init__(self, args: argparse.Namespace) -> None:
         self._alpha = args.en_alpha
         self._l1_ratio = args.en_l1_ratio
         self._max_iter = args.en_max_iter
         self._n_components = args.n_components
-        self._use_pca = not args.no_pca
+        self._use_pca = args.pca
         self._scaler: Optional[StandardScaler] = None
         self._pca: Optional[PCA] = None
         self._model: Optional[ElasticNet] = None

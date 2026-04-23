@@ -49,8 +49,9 @@ class TemplateModel(CVModel):
         g.add_argument("--template_param", type=float, default=1.0,
                        help="Example hyperparameter (default: 1.0)")
         g.add_argument("--n_components", type=int, default=500,
-                       help="PCA components (default: 500; --no_pca to skip)")
-        g.add_argument("--no_pca", action="store_true",
+                       help="PCA components (default: 500; only used if --pca is set)")
+        g.add_argument("--pca", action="store_true", default=False,
+                       help="Apply PCA preprocessing (default: off)")
                        help="Skip PCA and use raw scaled features")
 
     # ------------------------------------------------------------------
@@ -59,7 +60,7 @@ class TemplateModel(CVModel):
     def __init__(self, args: argparse.Namespace) -> None:
         self._param = args.template_param
         self._n_components = args.n_components
-        self._use_pca = not args.no_pca
+        self._use_pca = args.pca
 
         # Internal state
         self._scaler: Optional[StandardScaler] = None

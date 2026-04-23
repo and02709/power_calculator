@@ -36,7 +36,8 @@ class GradientBoostingModel(CVModel):
                        help="Fraction of samples per tree (default: 0.8)")
         g.add_argument("--n_components",    type=int,   default=200,
                        help="PCA components (default: 200)")
-        g.add_argument("--no_pca", action="store_true", help="Skip PCA")
+        g.add_argument("--pca", action="store_true", default=False,
+                       help="Apply PCA preprocessing (default: off)")
 
     def __init__(self, args: argparse.Namespace) -> None:
         self._n_estimators = args.gb_n_estimators
@@ -44,7 +45,7 @@ class GradientBoostingModel(CVModel):
         self._max_depth    = args.gb_max_depth
         self._subsample    = args.gb_subsample
         self._n_components = args.n_components
-        self._use_pca      = not args.no_pca
+        self._use_pca      = args.pca
         self._scaler: Optional[StandardScaler] = None
         self._pca: Optional[PCA] = None
         self._model: Optional[GradientBoostingRegressor] = None

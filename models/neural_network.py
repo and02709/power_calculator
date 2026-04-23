@@ -60,7 +60,8 @@ class NeuralNetworkModel(CVModel):
             "--n_components", type=int, default=500,
             help="PCA components before MLP (default: 500)"
         )
-        g.add_argument("--no_pca", action="store_true", help="Skip PCA")
+        g.add_argument("--pca", action="store_true", default=False,
+                       help="Apply PCA preprocessing (default: off)")
 
     def __init__(self, args: argparse.Namespace) -> None:
         self._hidden_layers = _parse_layers(args.nn_hidden_layers)
@@ -69,7 +70,7 @@ class NeuralNetworkModel(CVModel):
         self._max_iter = args.nn_max_iter
         self._alpha = args.nn_alpha
         self._n_components = args.n_components
-        self._use_pca = not args.no_pca
+        self._use_pca = args.pca
         self._scaler: Optional[StandardScaler] = None
         self._pca: Optional[PCA] = None
         self._model: Optional[MLPRegressor] = None

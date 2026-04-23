@@ -3,7 +3,7 @@ from typing import Optional
 models/ridge.py — Ridge Regression (PCA preprocessing optional).
 
 Registered as "ridge".
-Usage: --model_file ridge  [--ridge_alpha A] [--n_components N | --no_pca]
+Usage: --model_file ridge  [--ridge_alpha A] [--n_components N ] [--pca]
 """
 
 
@@ -29,17 +29,17 @@ class RidgeModel(CVModel):
         )
         g.add_argument(
             "--n_components", type=int, default=500,
-            help="PCA components before Ridge (default: 500; use --no_pca to skip)"
+            help="PCA components before Ridge (default: 500; only used if --pca is set)"
         )
         g.add_argument(
-            "--no_pca", action="store_true",
-            help="Skip PCA and feed raw (scaled) features directly to Ridge"
+            "--pca", action="store_true", default=False,
+            help="Apply PCA preprocessing (default: off)"
         )
 
     def __init__(self, args: argparse.Namespace) -> None:
         self._alpha = args.ridge_alpha
         self._n_components = args.n_components
-        self._use_pca = not args.no_pca
+        self._use_pca = args.pca
         self._scaler: Optional[StandardScaler] = None
         self._pca: Optional[PCA] = None
         self._model: Optional[Ridge] = None

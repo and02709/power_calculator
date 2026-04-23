@@ -3,7 +3,7 @@ from typing import Optional
 models/svr.py — Support Vector Regression.
 
 Registered as "svr".
-Usage: --model_file svr  [--svr_C C] [--svr_kernel K] [--svr_epsilon E] [--n_components N | --no_pca]
+Usage: --model_file svr  [--svr_C C] [--svr_kernel K] [--svr_epsilon E] [--n_components N ] [--pca]
 
 Note: SVR can be slow on large datasets. PCA (default: 200 components) is
 strongly recommended to keep training tractable.
@@ -37,7 +37,8 @@ class SVRModel(CVModel):
                        help="Kernel coefficient for rbf/poly/sigmoid (default: scale)")
         g.add_argument("--n_components", type=int, default=200,
                        help="PCA components before SVR (default: 200)")
-        g.add_argument("--no_pca", action="store_true", help="Skip PCA")
+        g.add_argument("--pca", action="store_true", default=False,
+                       help="Apply PCA preprocessing (default: off)")
 
     def __init__(self, args: argparse.Namespace) -> None:
         self._C = args.svr_C
@@ -45,7 +46,7 @@ class SVRModel(CVModel):
         self._epsilon = args.svr_epsilon
         self._gamma = args.svr_gamma
         self._n_components = args.n_components
-        self._use_pca = not args.no_pca
+        self._use_pca = args.pca
         self._scaler: Optional[StandardScaler] = None
         self._pca: Optional[PCA] = None
         self._model: Optional[SVR] = None

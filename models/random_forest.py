@@ -3,7 +3,7 @@ from typing import Optional
 models/random_forest.py — PCA + Random Forest (original cv.py behaviour).
 
 Registered as "random_forest".
-Usage: --model_file random_forest  [--n_components N] [--n_estimators N]
+Usage: --model_file random_forest  [--n_components N] [--n_estimators N] [--pca]
 """
 
 
@@ -31,10 +31,15 @@ class RandomForestModel(CVModel):
             "--n_estimators", type=int, default=500,
             help="Number of RF trees (default: 500)"
         )
+        g.add_argument(
+            "--pca", action="store_true", default=False,
+            help="Apply PCA preprocessing (default: off)"
+        )
 
     def __init__(self, args: argparse.Namespace) -> None:
         self._n_components = args.n_components
         self._n_estimators = args.n_estimators
+        self._use_pca = args.pca
         self._scaler: Optional[StandardScaler] = None
         self._pca: Optional[PCA] = None
         self._rf: Optional[RandomForestRegressor] = None
@@ -46,21 +51,23 @@ class RandomForestModel(CVModel):
     # ------------------------------------------------------------------
 
     def _preprocess_train(self, X: np.ndarray) -> np.ndarray:
-        n_comp = min(self._n_components, X.shape[0], X.shape[1])
-        print(f"[RF] StandardScaler + PCA (n_components={n_comp}) ...")
         self._scaler = StandardScaler()
         X_sc = self._scaler.fit_transform(X)
-        self._pca = PCA(n_components=n_comp, svd_solver="randomized", random_state=42)
-        X_pca = self._pca.fit_transform(X_sc)
-        self._var_explained = float(
-            np.cumsum(self._pca.explained_variance_ratio_)[-1]
-        ) * 100
-        print(f"[RF] PCA variance explained: {self._var_explained:.1f}%")
-        return X_pca
+        if self._use_pca:
+            n_comp = min(self._n_components, X.shape[0], X.shape[1])
+            print(f"[RF] PCA n_components={n_comp}")
+            self._pca = PCA(n_components=n_comp, svd_solver="randomized", random_state=42)
+            X_sc = self._pca.fit_transform(X_sc)
+            self._var_explained = float(
+                np.cumsum(self._pca.explained_variance_ratio_)[-1]
+            ) * 100
+            print(f"[RF] PCA variance explained: {self._var_explained:.1f}%")
+        return X_sc
 
     def _preprocess_test(self, X: np.ndarray) -> np.ndarray:
-        assert self._scaler is not None and self._pca is not None
-        return self._pca.transform(self._scaler.transform(X))
+        assert self._scaler is not None
+        X_sc = self._scaler.transform(X)
+        return self._pca.transform(X_sc) if self._use_pca else X_sc
 
     # ------------------------------------------------------------------
     # CVModel interface
@@ -86,6 +93,7 @@ class RandomForestModel(CVModel):
     def extra_info(self) -> dict:
         return {
             "oob_r2": self._oob_r2,
+            "use_pca": self._use_pca,
             "pca_var_explained_pct": self._var_explained,
             "n_components_actual": (
                 self._pca.n_components_ if self._pca is not None else None
