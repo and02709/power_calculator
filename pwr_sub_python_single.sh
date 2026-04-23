@@ -19,7 +19,7 @@ FILEDIR="${4}"
 PCONNDIR="${5}"
 PCONNREF="${6}"
 NREP="${7}"
-NTIME="${9}"
+NTIME="${8}"
 
 TASK_ID="${SLURM_ARRAY_TASK_ID}"
 
