@@ -101,7 +101,7 @@ sbatch PWR.sh [OPTIONS]
 
 | Flag              | Default          | Description                                              |
 |-------------------|------------------|----------------------------------------------------------|
-| `--model`         | `random_forest`  | ML model to use for CV (see available models below)      |
+| `--model`         | `random_forest`  | Machine-Learning model to use for CV (see available models below)      |
 | `--n-components`  | `500`            | Number of PCA components fed into the model              |
 | `--n-estimators`  | `500`            | Number of trees (Random Forest / Gradient Boosting only) |
 
