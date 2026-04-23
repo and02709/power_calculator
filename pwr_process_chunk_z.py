@@ -137,6 +137,7 @@ def main():
     ap.add_argument("--use_one_target", action="store_true")
     ap.add_argument("--z_clip", type=float, default=1e-7)
     args = ap.parse_args()
+    n_time = args.NTIME
  
     out_dir = os.path.join(args.WRKDIR, "pwr_data")
     index_path = os.path.join(out_dir, "pwr_index_file.txt")
