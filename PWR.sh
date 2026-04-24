@@ -466,14 +466,31 @@ submit "cvGen" "1:00:00" "16GB" "2" -- --array=1-"$NUMFILES" --wait \
 # ---------------------------------------------------------------------------
 # Step 6 — Setup CV metrics
 # ---------------------------------------------------------------------------
+# Prepares the per-fold split files (.npz) that downstream CV steps consume.
+# Specifically, setupCVmetrics.sh converts the fold indices generated in
+# Step 5 into full_<size>_fold_<k>_split.npz files, each containing the
+# train and test index arrays for one sample-size/fold combination.
+#
+# Runs as a single (non-array) job synchronously (--wait) before the
+# guard below executes. The total number of expected .npz files is:
+#   NUMFILES (sample sizes) × KFOLDS (folds per size)
 submit "setupCVmetrics" "1:00:00" "16GB" "2" -- --wait \
   "$FILEDIR/setupCVmetrics.sh" "$WRKDIR" "$FILEDIR"
 
+# ── Guard: verify split files were produced for all size/fold combinations ────
+# Counts all full_*_fold_*_split.npz files written by setupCVmetrics.
+# A count of zero means either no fold indices were found from Step 5
+# (upstream failure) or setupCVmetrics itself crashed before writing output.
+#
+# Note: this guard checks only that at least one file exists, not that
+# all NUMFILES × KFOLDS combinations are present. A partial run
+# (some sizes or folds missing) would pass this check — if stricter
+# validation is needed, compare NUMFFILES against NUMFILES * KFOLDS.
 NUMFFILES=$(ls "$PWRDATA"/full_*_fold_*_split.npz 2>/dev/null | wc -l | tr -d ' ')
 echo "[INFO] NUMFFILES=$NUMFFILES"
 if [ "$NUMFFILES" -le 0 ]; then
   echo "[FATAL] NUMFFILES=0 (no full_*_fold_*_split.npz found)" >&2
-  ls -lh "$PWRDATA" | head -n 120
+  ls -lh "$PWRDATA" | head -n 120   # Dump directory listing to aid diagnosis
   exit 1
 fi
 
