@@ -173,8 +173,11 @@ fi
 # ---------------------------------------------------------------------------
 # Derived paths
 # ---------------------------------------------------------------------------
+# We create a new directory to contain all output logs in the working directory
 OUTDIR="$WRKDIR/OUT"
+# We create a new directory to contain all error logs in the working directory
 ERRDIR="$WRKDIR/ERR"
+# We create a directory to hold all the relevent information for our power calculation
 PWRDATA="$WRKDIR/pwr_data"
 
 # ---------------------------------------------------------------------------
