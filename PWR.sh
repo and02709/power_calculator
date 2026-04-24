@@ -363,13 +363,13 @@ echo "[INFO] NINDEX=$NINDEX CHUNK_SIZE=$CHUNK_SIZE NJOBS=$NJOBS"
 # Two modes are supported, selected by the SINGLETEMP flag:
 #
 #   SINGLETEMP=1  (single-template mode)
-#     Each simulation draws one fresh random pconn template per index row.
+#     Each simulated individual is based on the same pconn provided by --pconnref.
 #     Uses pwr_sub_python_single.sh → pwr_process_chunk_single_z.py.
 #     NUMTEMP is not passed — template count is fixed at 1 internally.
 #
 #   SINGLETEMP=0  (multi-template mode)
-#     Each simulation averages NUMTEMP randomly drawn pconn templates to
-#     form a single representative connectivity matrix before simulating.
+#     Each simulation averages NUMTEMP randomly drawn pconn templates from --pconndir
+#     to form form a single representative connectivity matrix before simulating.
 #     Uses pwr_sub_python.sh → pwr_process_chunk_z.py.
 #
 # Both modes run synchronously (--wait) so Step 3 only begins once all
