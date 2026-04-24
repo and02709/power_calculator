@@ -399,7 +399,8 @@ fi
 # ---------------------------------------------------------------------------
 # Aggregates the per-chunk .npy arrays produced by Step 2 into one
 # full_<size>_cov.npy file per sample size. Also applies epsilon noise
-# (controlled by EPSILON) to the covariance matrices at this stage.
+# (controlled by EPSILON) to the calculated phenotypes formed by the dot product
+# between full imaging data and the phenotype mapping given by haufe.csv.
 # Runs synchronously (--wait) before the guards below execute.
 #
 # Memory is elevated to 64GB here because combine_data.py loads and
