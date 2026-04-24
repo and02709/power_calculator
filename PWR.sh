@@ -356,16 +356,42 @@ echo "[INFO] NINDEX=$NINDEX CHUNK_SIZE=$CHUNK_SIZE NJOBS=$NJOBS"
 # ---------------------------------------------------------------------------
 # Step 2 — Python array jobs
 # ---------------------------------------------------------------------------
+# Distributes the simulation workload across NJOBS SLURM array tasks.
+# Each task processes CHUNK_SIZE rows from pwr_index_file.txt, generating
+# simulated pconn matrices and phenotype vectors for a range of sample sizes.
+#
+# Two modes are supported, selected by the SINGLETEMP flag:
+#
+#   SINGLETEMP=1  (single-template mode)
+#     Each simulation draws one fresh random pconn template per index row.
+#     Uses pwr_sub_python_single.sh → pwr_process_chunk_single_z.py.
+#     NUMTEMP is not passed — template count is fixed at 1 internally.
+#
+#   SINGLETEMP=0  (multi-template mode)
+#     Each simulation averages NUMTEMP randomly drawn pconn templates to
+#     form a single representative connectivity matrix before simulating.
+#     Uses pwr_sub_python.sh → pwr_process_chunk_z.py.
+#
+# Both modes run synchronously (--wait) so Step 3 only begins once all
+# array tasks have completed or failed.
+#
+# Array indexing: tasks are 1-based (1..NJOBS). Each task derives its
+# chunk boundaries from its SLURM_ARRAY_TASK_ID at runtime:
+#   START = (TASK_ID - 1) * CHUNK_SIZE + 1
+#   END   = min(TASK_ID * CHUNK_SIZE, NINDEX)
+
 if [[ "$SINGLETEMP" == "1" ]]; then
   echo "Running in single-temp mode"
   submit "pwr_sub_python_single" "10:00:00" "16GB" "2" -- --array=1-"$NJOBS" --wait \
     "$FILEDIR/pwr_sub_python_single.sh" \
     "$WRKDIR" "$CHUNK_SIZE" "$NINDEX" "$FILEDIR" "$PCONNDIR" "$PCONNREF" "$NREP" "$NTIME"
+    # Args:  working dir  rows/task   total rows  script dir  pconn pool  reference pconn  simulations/row  timepoints
 else
   echo "Running in multi-temp mode"
   submit "pwr_sub_python" "10:00:00" "16GB" "2" -- --array=1-"$NJOBS" --wait \
     "$FILEDIR/pwr_sub_python.sh" \
     "$WRKDIR" "$CHUNK_SIZE" "$NINDEX" "$FILEDIR" "$PCONNDIR" "$PCONNREF" "$NUMTEMP" "$NREP" "$NTIME"
+    # Args:  working dir  rows/task   total rows  script dir  pconn pool  reference pconn  templates/sim  simulations/row  timepoints
 fi
 
 # ---------------------------------------------------------------------------
