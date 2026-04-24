@@ -6,13 +6,15 @@
 ![Python](https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54)
 ![Shell Script](https://img.shields.io/badge/shell_script-%23121011.svg?style=for-the-badge&logo=gnu-bash&logoColor=white)
 
-A brain imaging power calculator developed by the Masonic Institute of the Developing Brain at the University of Minnesota. The pipeline is built using [Python](https://www.python.org/) and [bash](https://www.gnu.org/software/bash/), and is designed to run on HPC clusters with a SLURM scheduler.
+A power calculator for between subject associations of brain imaging and phenotypes (aka BWAS) developed by the Masonic Institute of the Developing Brain at the University of Minnesota. The pipeline is built using [Python](https://www.python.org/) and [bash](https://www.gnu.org/software/bash/), and is designed to run on HPC clusters with a SLURM scheduler.
 
 ---
+<br />
+
 
 ## Overview
 
-This pipeline estimates statistical power for brain imaging studies by asking: *given a dataset of a certain size, how well can functional connectivity predict a phenotype of interest?* It does this by:
+This pipeline estimates statistical power for BWAS analyses by asking: *given a dataset of a certain size, how well can functional connectivity predict a phenotype of interest?* Unlike approaches that use repsampling of existing datasets (e.g. Marek et al., 2024), this approach simulates functional connectivity matrices and is thus not bound by existing dataset size, sampling and data quality. It does this by:
 
 1. **Generating a sample-size grid** — a logarithmically spaced set of 10 sample sizes from N=100 to N=2000, with each size representing the number of simulated individuals' brain images
 2. **Simulating functional connectivity** — for each index, a covariance matrix is simulated by drawing a reference image `.pconn.nii` decomposing using eigendecomposition, and simulating a timeseries from the resulting eigenvalues
@@ -23,17 +25,35 @@ This pipeline estimates statistical power for brain imaging studies by asking: *
 The primary entry point is `PWR.sh`, which orchestrates all steps as a chain of dependent SLURM array jobs.
 
 ---
+<br />
 
 ## Requirements
 
 - HPC cluster with SLURM scheduler
-- Python 3 with the following packages: `numpy`, `pandas`, `nibabel`, `scikit-learn`, `matplotlib`
-- Conda environment `FC_stability` (used internally by worker scripts), loaded via:
-  ```
-  /projects/standard/faird/shared/code/external/envs/miniconda3/load_miniconda3.sh
-  ```
+- Python environment with Python 3 and required modules available in `env_setup.yml`. The easiest way to achieve this is using miniconda. See below example set up guide.
+
+<br />
+
+#### Python env set up with Miniconda
+In 'reqs' folder use the env_setup.yml to create the environemnt which will be called 'BWAS_PWR_env':  
+`conda env create -f (cloned_dir)/reqs/env_setup.yml`
+
+Check env was installed correctly:  
+`conda info --envs`
+
+There should now be a `(your_miniconda_dir)/envs/BWAS_PWR_env` visible
+
+To activate this environment:  
+`conda activate HCP_env`
+
+<br />
+
+#### For internal use at the UMN MSI cluster users part of the faird group ONLY:
+- Use the `FC_stability` conda env. Make sure you source the faird miniconda3 path first.
+
 
 ---
+<br />
 
 ## Quick Start
 
@@ -72,6 +92,7 @@ sbatch PWR.sh \
 ```
 
 ---
+<br />
 
 ## Usage
 
@@ -123,6 +144,7 @@ sbatch PWR.sh [OPTIONS]
 | `--gb-lr`          | `0.05`    | Gradient Boosting |
 
 ---
+<br />
 
 ## Worked Example
 
@@ -161,6 +183,7 @@ sbatch /scratch.global/and02709/power_calculator/PWR.sh \
   --pca \
   --n-components 500
 ```
+<br />
 
 ### What happens step by step
 
@@ -220,6 +243,8 @@ pwr_data/data_<N>_fold_<k>_cvr2.npy
 - `mean_metric_by_size.png` — power curve plot
 - `pconn_template_lookup.csv` — record of which pconn files were used per simulation index
 
+<br />
+
 ### Expected output: Power Curve
 
 The final plot (`mean_metric_by_size.png`) shows mean cross-validated R² as a function of sample size, with error bars representing ±1 SD across folds and replicates:
@@ -237,6 +262,7 @@ The final plot (`mean_metric_by_size.png`) shows mean cross-validated R² as a f
 In the example above, R² rises from near zero at N=100 to ~0.44 at N=2000. The large error bars at small N (e.g. the lower bound reaching -0.1 at N=100) reflect high variance in small-sample estimates — the model sometimes performs below chance due to insufficient data to learn a reliable signal. The curve has not fully plateaued at N=2000, suggesting that even larger samples would continue to improve predictive performance for this phenotype/FC combination.
 
 ---
+<br />
 
 ## Pipeline Steps Reference
 
@@ -253,6 +279,7 @@ In the example above, R² rises from near zero at N=100 to ~0.44 at N=2000. The 
 A `job_manifest.tsv` is written to `$WRKDIR/OUT/` recording the SLURM job ID, stdout path, and stderr path for every submitted step.
 
 ---
+<br />
 
 ## Available ML Models
 
@@ -273,6 +300,7 @@ To run any model with PCA dimensionality reduction:
 ```bash
 sbatch PWR.sh ... --model ridge --pca --n-components 200
 ```
+<br />
 
 ### Adding a Custom Model
 
@@ -284,6 +312,7 @@ sbatch PWR.sh ... --model ridge --pca --n-components 200
 The `--pca` flag is handled automatically by the base infrastructure — your model receives `args.pca` and `args.n_components` like all built-in models. No changes to `cv.py`, `cv.sh`, or `PWR.sh` are required.
 
 ---
+<br />
 
 ## Output Structure
 
@@ -307,6 +336,7 @@ $WRKDIR/
 ```
 
 ---
+<br />
 
 ## Repository Structure
 
@@ -338,6 +368,7 @@ power_calculator/
 ```
 
 ---
+<br />
 
 ## License
 
