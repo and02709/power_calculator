@@ -443,6 +443,23 @@ fi
 # ---------------------------------------------------------------------------
 # Step 5 — CV generation
 # ---------------------------------------------------------------------------
+# Generates train/test fold indices for each sample size in parallel.
+# One array task is launched per sample size (1..NUMFILES), where each
+# task creates the CV split files needed by Step 6 (cv.py).
+#
+# Each task receives its target sample size implicitly via
+# SLURM_ARRAY_TASK_ID, which cvGen.sh maps to the corresponding
+# full_<size>_cov.npy produced in Step 3.
+#
+# KFOLDS controls how many folds are generated per sample size.
+# Output files are expected to follow the pattern:
+#   $PWRDATA/cv_<size>_fold<k>.npz   (train/test index arrays)
+#
+# Runs synchronously (--wait) so Step 6 only begins once fold
+# indices exist for all sample sizes.
+#
+# Note: labeled Step 5 rather than Step 4 because ridge model
+# generation (Step 4) runs between combine_data and CV generation.
 submit "cvGen" "1:00:00" "16GB" "2" -- --array=1-"$NUMFILES" --wait \
   "$FILEDIR/cvGen.sh" "$WRKDIR" "$FILEDIR" "$NUMFILES" "$KFOLDS"
 
