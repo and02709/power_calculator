@@ -218,32 +218,71 @@ echo -e "step\tjobid\tstdout\tstderr" > "$manifest"
 # ---------------------------------------------------------------------------
 # submit STEP TIME MEM CPUS [sbatch args ...] -- script args ...
 # ---------------------------------------------------------------------------
-submit() {
-  local step="$1"; shift
-  local time="$1"; shift
-  local mem="$1"; shift
-  local cpus="$1"; shift
+# submit() — Wrapper around sbatch for standardized job submission.
+#
+# Submits a SLURM job with consistent output/error path naming, optional
+# extra sbatch flags, and logs job metadata (job ID, stdout/stderr paths)
+# to a manifest file for tracking.
+#
+# Usage:
+#   submit <step> <time> <mem> <cpus> [extra_sbatch_args...] [--] <script> [script_args...]
+#
+# Arguments:
+#   step    - Logical pipeline step name (e.g. "pwr_setup", "combine_data").
+#             Used to name output/error files and label manifest entries.
+#   time    - SLURM walltime limit (e.g. "02:00:00").
+#   mem     - Memory request (e.g. "16G").
+#   cpus    - Number of CPUs per task (e.g. 4).
+#   [extra] - Optional additional sbatch flags (e.g. --array=1-100 --dependency=...).
+#             Consumed until a bare "--" separator or the script path is reached.
+#   --      - Optional explicit separator between extra sbatch flags and the script.
+#   script  - Path to the script to submit.
+#   [args]  - Arguments forwarded to the script.
+#
+# Outputs:
+#   - Stdout log: $OUTDIR/<step>_<jobID>_<arrayID>.out
+#   - Stderr log: $ERRDIR/<step>_<jobID>_<arrayID>.err
+#   - Appends a tab-separated line to $manifest:
+#       <step>  <jobID>  <stdout_path>  <stderr_path>
+#
+# Globals read:
+#   OUTDIR   - Directory for .out log files
+#   ERRDIR   - Directory for .err log files
+#   PWRDATA  - Working directory passed to --chdir
+#   manifest - Path to the job manifest/tracking file
+#
+# Exits with code 1 if no script argument is provided.
 
+submit() {
+  local step="$1"; shift       # Pipeline step label (used in filenames + manifest)
+  local time="$1"; shift       # SLURM walltime (--time)
+  local mem="$1"; shift        # Memory request (--mem)
+  local cpus="$1"; shift       # CPUs per task (--cpus-per-task)
+
+  # Output/error filename patterns; %A = job ID, %a = array task ID
   local outpat="$OUTDIR/${step}_%A_%a.out"
   local errpat="$ERRDIR/${step}_%A_%a.err"
 
+  # Collect any extra sbatch flags that appear before the script path.
+  # A bare "--" can be used to explicitly end the extra-flags section.
   local sbatch_extra=()
   while [[ $# -gt 0 ]]; do
     if [[ "$1" == "--" ]]; then
-      shift
+      shift   # Discard the "--" separator and stop collecting extra flags
       break
     fi
     sbatch_extra+=("$1")
     shift
   done
 
+  # Remaining positional args must start with the script path
   if [[ $# -lt 1 ]]; then
     echo "[FATAL] submit($step): missing script" >&2
     exit 1
   fi
+  local script="$1"; shift   # Script to submit; remaining "$@" are its arguments
 
-  local script="$1"; shift
-
+  # Log what is about to be submitted for easier debugging
   echo "[SUBMIT] $step"
   echo "  script: $script $*"
   echo "  out:    $outpat"
@@ -251,6 +290,7 @@ submit() {
   echo "  extra:  ${sbatch_extra[*]:-<none>}"
   echo "[CMD] sbatch --parsable --chdir=$PWRDATA --time=$time --mem=$mem --cpus-per-task=$cpus -N 1 --output=$outpat --error=$errpat ${sbatch_extra[*]:-} $script $*"
 
+  # Submit the job; --parsable returns only the job ID (or "jobid;cluster")
   local jid
   jid=$(sbatch --parsable \
     --chdir="$PWRDATA" \
@@ -262,15 +302,19 @@ submit() {
 
   echo "[JOB] $step -> $jid"
 
+  # Query SLURM for the resolved stdout/stderr paths on the scheduler side.
+  # "${jid%%_*}" strips any array suffix (e.g. "12345_1" -> "12345") so
+  # scontrol can look up the parent job record.
   local so se
   so=$(scontrol show job "${jid%%_*}" 2>/dev/null | awk -F= '/StdOut=/{print $2}' | awk '{print $1}' || true)
   se=$(scontrol show job "${jid%%_*}" 2>/dev/null | awk -F= '/StdErr=/{print $2}' | awk '{print $1}' || true)
+
   echo "[SCONTROL] StdOut=$so"
   echo "[SCONTROL] StdErr=$se"
 
+  # Append a manifest record: step, job ID, resolved stdout, resolved stderr
   echo -e "${step}\t${jid}\t${so}\t${se}" >> "$manifest"
 }
-
 # ---------------------------------------------------------------------------
 # Step 1 — Setup
 # ---------------------------------------------------------------------------
