@@ -322,18 +322,35 @@ submit() {
 # ---------------------------------------------------------------------------
 # Step 1 — Setup
 # ---------------------------------------------------------------------------
+# Run pwr_setup.sh synchronously (--wait) before any downstream steps.
+# This step generates pwr_index_file.txt, which defines the simulation
+# index space (one row per sample-size/dataset-size combination). All
+# subsequent array jobs depend on this file existing and being non-empty.
 submit "pwr_setup" "1:00:00" "16GB" "2" -- --wait \
   "$FILEDIR/pwr_setup.sh" "$WRKDIR" "$FILEDIR"
 
+# Guard: confirm pwr_index_file.txt was actually produced and is non-empty.
+# -s tests that the file exists AND has size > 0. If it's missing or empty,
+# something went wrong in pwr_setup and there is nothing to array over —
+# abort early rather than silently submitting zero-work array jobs.
 if [ ! -s "$PWRDATA/pwr_index_file.txt" ]; then
   echo "[FATAL] pwr_index_file.txt missing/empty" >&2
-  ls -lh "$PWRDATA" | head -n 80
+  ls -lh "$PWRDATA" | head -n 80   # Dump directory listing to aid diagnosis
   exit 1
 fi
 
+# ── Compute array dimensions ─────────────────────────────────────────────────
+# NINDEX    = total number of simulation rows in the index file
+# CHUNK_SIZE = number of index rows assigned to each array task
+# NJOBS     = number of array tasks needed to cover all rows
+#
+# The ceiling-division formula (N + C - 1) / C ensures the last chunk is
+# still submitted even when NINDEX is not a perfect multiple of CHUNK_SIZE.
+# Example: 250 rows / 100 per chunk → 3 jobs (jobs 1-100, 101-200, 201-250).
 NINDEX=$(wc -l < "$PWRDATA/pwr_index_file.txt" | tr -d ' ')
 CHUNK_SIZE=100
 NJOBS=$(( (NINDEX + CHUNK_SIZE - 1) / CHUNK_SIZE ))
+
 echo "[INFO] NINDEX=$NINDEX CHUNK_SIZE=$CHUNK_SIZE NJOBS=$NJOBS"
 
 # ---------------------------------------------------------------------------
