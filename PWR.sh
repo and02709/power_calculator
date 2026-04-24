@@ -397,17 +397,38 @@ fi
 # ---------------------------------------------------------------------------
 # Step 3 — Combine data
 # ---------------------------------------------------------------------------
+# Aggregates the per-chunk .npy arrays produced by Step 2 into one
+# full_<size>_cov.npy file per sample size. Also applies epsilon noise
+# (controlled by EPSILON) to the covariance matrices at this stage.
+# Runs synchronously (--wait) before the guards below execute.
+#
+# Memory is elevated to 64GB here because combine_data.py loads and
+# concatenates all chunk outputs for each sample size into memory at once.
 submit "combine_data" "1:00:00" "64GB" "4" -- --wait \
   "$FILEDIR/combine_data.sh" "$WRKDIR" "$FILEDIR" "$EPSILON"
 
+# ── Guard 1: at least one output file was created ────────────────────────────
+# Verifies that combine_data.sh produced at least one full_*_cov.npy.
+# A count of zero means either all chunk outputs were missing/malformed
+# or combine_data itself crashed before writing anything.
 N_FULL_COV=$(ls "$PWRDATA"/full_*_cov.npy 2>/dev/null | wc -l | tr -d ' ')
 echo "[INFO] full_*_cov.npy count=$N_FULL_COV"
 if [ "$N_FULL_COV" -le 0 ]; then
   echo "[FATAL] combine_data produced no full_*_cov.npy" >&2
-  ls -lh "$PWRDATA" | head -n 80
+  ls -lh "$PWRDATA" | head -n 80   # Dump directory listing to aid diagnosis
   exit 1
 fi
 
+# ── Guard 2: count distinct sample sizes represented in the outputs ───────────
+# Extracts the numeric size token from each full_<size>_cov.npy filename
+# and counts how many unique sizes are present. This catches the case where
+# combine_data ran and wrote files, but only produced output for a subset
+# of the expected sample sizes (e.g. some sizes crashed mid-aggregation).
+#
+# sed strips everything except the size token:
+#   full_100_cov.npy  →  100
+#   full_2500_cov.npy →  2500
+# sort -u deduplicates (guards against any accidental filename duplicates).
 NUMFILES=$(
   ls "$PWRDATA"/full_*_cov.npy 2>/dev/null \
   | sed -E 's/.*\/full_([0-9]+)_cov\.npy/\1/' \
