@@ -497,6 +497,43 @@ fi
 # ---------------------------------------------------------------------------
 # Step 7 — Cross-validation (model array jobs)
 # ---------------------------------------------------------------------------
+# Fits and evaluates the chosen predictive model on every sample-size/fold
+# combination in parallel. One array task is launched per split file
+# (1..NUMFFILES), where NUMFFILES = NUMFILES × KFOLDS.
+#
+# Each task receives its target split via SLURM_ARRAY_TASK_ID, which
+# cv.sh maps to the corresponding full_<size>_fold_<k>_split.npz.
+#
+# Memory is elevated to 32GB (vs 16GB in earlier steps) to accommodate
+# in-memory model fitting across the full training fold for larger
+# sample sizes.
+#
+# Model behaviour is controlled entirely via --export rather than
+# positional script arguments, so cv.sh can forward them as environment
+# variables without needing to know which model is active. Parameters
+# irrelevant to the selected MODEL_FILE are passed but silently ignored
+# by cv.py.
+#
+# --export variables:
+#   MODEL_FILE      - Path to the model definition module (models/*.py)
+#   USE_PCA         - Whether to apply PCA before fitting (0 or 1)
+#   N_COMPONENTS    - Number of PCA components (used if USE_PCA=1)
+#   N_ESTIMATORS    - Trees for RandomForest / GradientBoosting
+#   RIDGE_ALPHA     - Regularisation strength for Ridge regression
+#   LASSO_ALPHA     - Regularisation strength for Lasso regression
+#   EN_ALPHA        - Regularisation strength for ElasticNet
+#   EN_L1_RATIO     - L1/L2 mixing ratio for ElasticNet (0=Ridge, 1=Lasso)
+#   SVR_C           - Regularisation parameter for SVR
+#   NN_HIDDEN_LAYERS - Layer sizes for the neural network (e.g. "64,32")
+#   NN_LR           - Learning rate for the neural network
+#   GB_N_ESTIMATORS - Number of boosting stages for GradientBoosting
+#   GB_LR           - Learning rate (shrinkage) for GradientBoosting
+#
+# The bare "--" after the --export flag closes the sbatch_extra block
+# inside submit(), separating SLURM flags from the script path.
+#
+# Runs synchronously (--wait) so Step 8 only begins once all
+# size/fold model fits are complete.
 submit "cv" "2:00:00" "32GB" "2" -- \
   --array=1-"$NUMFFILES" --wait \
   --export=ALL,MODEL_FILE="$MODEL_FILE",USE_PCA="$USE_PCA",N_COMPONENTS="$N_COMPONENTS",N_ESTIMATORS="$N_ESTIMATORS",RIDGE_ALPHA="$RIDGE_ALPHA",LASSO_ALPHA="$LASSO_ALPHA",EN_ALPHA="$EN_ALPHA",EN_L1_RATIO="$EN_L1_RATIO",SVR_C="$SVR_C",NN_HIDDEN_LAYERS="$NN_HIDDEN_LAYERS",NN_LR="$NN_LR",GB_N_ESTIMATORS="$GB_N_ESTIMATORS",GB_LR="$GB_LR" \
