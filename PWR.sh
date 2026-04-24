@@ -543,7 +543,26 @@ submit "cv" "2:00:00" "32GB" "2" -- \
 # ---------------------------------------------------------------------------
 # Step 8 — Final data
 # ---------------------------------------------------------------------------
+# Collects all per-fold CV results produced in Step 7 and aggregates them
+# into the final power curve outputs (e.g. mean/SD of prediction accuracy
+# across folds, per sample size). This is the terminal compute step of the
+# pipeline — its outputs are what the power calculator actually reports.
+#
+# Resource profile is the heaviest in the pipeline (12h / 96GB / 8 CPUs):
+#   - 12h walltime: aggregation across all sample sizes and folds can be
+#     slow if results are large or post-processing is extensive.
+#   - 96GB memory:  all per-fold result arrays are loaded simultaneously
+#     before reduction, which scales with NUMFILES × KFOLDS × result size.
+#   - 8 CPUs:       final_data.py can parallelise aggregation across sample
+#     sizes using multiprocessing.
+#
+# Runs as a single (non-array) job synchronously (--wait). No guard follows
+# because the manifest echo below serves as the implicit success signal —
+# if final_data.sh crashes, the submit() call will propagate a non-zero
+# exit and the pipeline will abort before reaching it.
 submit "final_data" "12:00:00" "96GB" "8" -- --wait \
   "$FILEDIR/final_data.sh" "$WRKDIR" "$FILEDIR"
 
+# Pipeline complete — print the manifest path so the caller knows where
+# to find the full record of submitted job IDs and their log file paths.
 echo "[DONE] manifest=$manifest"
