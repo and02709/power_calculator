@@ -14,6 +14,8 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 # Usage
 # ---------------------------------------------------------------------------
+
+# Read in command line arguments for the following parameters.
 usage() {
   cat <<EOF
 Usage: sbatch PWR.sh [OPTIONS]
@@ -65,6 +67,7 @@ EOF
 # ---------------------------------------------------------------------------
 # Defaults
 # ---------------------------------------------------------------------------
+# These represent default arguments if now arguments are provided by the command line.
 WRKDIR="$(pwd)"
 PCONNDIR="$(pwd)"
 PCONNREF=""
@@ -76,6 +79,7 @@ NREP=10
 NTIME=1000
 EPSILON=""
 
+# These arguments represent hyperparameters for machine learning methods for the cross validation module.
 MODEL_FILE="${MODEL_FILE:-random_forest}"
 USE_PCA="${USE_PCA:-false}"
 N_COMPONENTS="${N_COMPONENTS:-500}"
