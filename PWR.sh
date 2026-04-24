@@ -138,6 +138,7 @@ done
 # ---------------------------------------------------------------------------
 # Validate required arguments
 # ---------------------------------------------------------------------------
+# We use this to prevent execution of the script if these five arguments are missing from the command line.
 missing=()
 [[ -z "$PCONNREF"   ]] && missing+=(--pconnref)
 [[ -z "$SINGLETEMP" ]] && missing+=(--singletemp)
