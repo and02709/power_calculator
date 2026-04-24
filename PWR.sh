@@ -97,6 +97,7 @@ GB_LR="${GB_LR:-0.05}"
 # ---------------------------------------------------------------------------
 # Parse named arguments
 # ---------------------------------------------------------------------------
+# We use this to read in command line arguments using --argument usage
 if [[ $# -eq 0 ]]; then
   usage
 fi
