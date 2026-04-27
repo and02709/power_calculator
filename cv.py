@@ -11,13 +11,13 @@ the filename (without .py) of a plugin inside the models/ directory. This
 makes cv.py model-agnostic: adding a new model requires no changes here.
 
 Built-in models:
-    random_forest      PCA + Random Forest         (original behaviour)
-    ridge              PCA + Ridge Regression
-    lasso              PCA + Lasso Regression
-    elastic_net        PCA + ElasticNet
-    svr                PCA + Support Vector Regression
-    neural_network     PCA + MLP Regressor
-    gradient_boosting  PCA + Gradient Boosting
+    random_forest      Random Forest         (original behaviour)
+    ridge              Ridge Regression
+    lasso              Lasso Regression
+    elastic_net        ElasticNet
+    svr                Support Vector Regression
+    neural_network     MLP Regressor
+    gradient_boosting  Gradient Boosting
 
 Adding a new model:
     1. Create  models/<name>.py
