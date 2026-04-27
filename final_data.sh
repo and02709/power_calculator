@@ -42,14 +42,20 @@
 #SBATCH --job-name final_data
 
 # ── Arguments ─────────────────────────────────────────────────────────────────
-WRKDIR=$1    # Root working directory
-FILEDIR=$2   # Pipeline scripts directory
+WRKDIR="$1"    # Root working directory
+FILEDIR="$2"   # Pipeline scripts directory
+CONDAENV="$3"  # Conda environment to activate
 
 # ── Environment ───────────────────────────────────────────────────────────────
 # Uses the cluster's system Python3 module, consistent with cvGen.sh and
 # setupCVmetrics.sh. Switch to conda activate FC_stability if final_data.py
 # requires dependencies beyond the system Python3 environment.
-module load python3
+# Note: the if condition is a workaround for using this on MSI where we have to source the conda environment path
+# without this, activate would would fail. Need to find better solution for production.
+if [[ "$CONDAENV" == "FC_stability" ]]; then
+  source /projects/standard/faird/shared/code/external/envs/miniconda3/load_miniconda3.sh
+fi
+conda activate "$CONDAENV"
 
 # Change into pwr_data/ so final_data.py can resolve cvr2.npy files using
 # relative paths if needed. final_data.py also receives WRKDIR as an explicit

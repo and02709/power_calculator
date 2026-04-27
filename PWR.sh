@@ -26,6 +26,7 @@ Required:
   --numtemp      INT           Number of temperatures (>= 1)
   --kfolds       INT           Number of CV folds
   --epsilon      FLOAT         Epsilon value (>= 0)
+  --condaenv     ENV_NAME      Conda environment to use
 
 Optional with defaults:
   --wrkdir       WRKDIR        Working directory (default: PWD)
@@ -78,6 +79,7 @@ KFOLDS=""
 NREP=10
 NTIME=1000
 EPSILON=""
+CONDAENV=""
 
 # These arguments represent hyperparameters for machine learning methods for the cross validation module.
 MODEL_FILE="${MODEL_FILE:-random_forest}"
@@ -114,6 +116,7 @@ while [[ $# -gt 0 ]]; do
     --nrep)         NREP="$2";             shift 2 ;;
     --ntime)        NTIME="$2";            shift 2 ;;
     --epsilon)      EPSILON="$2";          shift 2 ;;
+    --condaenv)     CONDAENV="$2";         shift 2 ;;
     --model)        MODEL_FILE="$2";       shift 2 ;;
     --pca)          USE_PCA="true";        shift 1 ;;
     --n-components) N_COMPONENTS="$2";     shift 2 ;;
@@ -145,6 +148,8 @@ missing=()
 [[ -z "$NUMTEMP"    ]] && missing+=(--numtemp)
 [[ -z "$KFOLDS"     ]] && missing+=(--kfolds)
 [[ -z "$EPSILON"    ]] && missing+=(--epsilon)
+#not adding condaenv check here as we have a specific error message for it below
+
 
 if [[ ${#missing[@]} -gt 0 ]]; then
   echo "[FATAL] Missing required arguments: ${missing[*]}" >&2
@@ -169,6 +174,11 @@ if (( $(echo "$EPSILON < 0" | bc -l) )); then
   echo "[FATAL] --epsilon must be >= 0" >&2
   exit 1
 fi
+if [[ -z "$CONDAENV" ]]; then
+  echo "[FATAL] --condaenv must be specified. Either you've forgotten to add this or your conda environment doesnt exist." >&2
+  exit 1
+fi
+
 
 # ---------------------------------------------------------------------------
 # Derived paths
@@ -185,6 +195,7 @@ PWRDATA="$WRKDIR/pwr_data"
 # ---------------------------------------------------------------------------
 # We print back the arguments passed to our script for debugging purposes.
 echo "=== PWR Pipeline ==="
+echo "[INFO] CONDAENV=$CONDAENV"
 echo "[INFO] WRKDIR=$WRKDIR"
 echo "[INFO] PCONNDIR=$PCONNDIR"
 echo "[INFO] PCONNREF=$PCONNREF"
@@ -384,13 +395,13 @@ if [[ "$SINGLETEMP" == "1" ]]; then
   echo "Running in single-temp mode"
   submit "pwr_sub_python_single" "10:00:00" "16GB" "2" -- --array=1-"$NJOBS" --wait \
     "$FILEDIR/pwr_sub_python_single.sh" \
-    "$WRKDIR" "$CHUNK_SIZE" "$NINDEX" "$FILEDIR" "$PCONNDIR" "$PCONNREF" "$NREP" "$NTIME"
+    "$WRKDIR" "$CHUNK_SIZE" "$NINDEX" "$FILEDIR" "$PCONNDIR" "$PCONNREF" "$NREP" "$NTIME" "$CONDAENV"
     # Args:  working dir  rows/task   total rows  script dir  pconn pool  reference pconn  simulations/row  timepoints
 else
   echo "Running in multi-temp mode"
   submit "pwr_sub_python" "10:00:00" "16GB" "2" -- --array=1-"$NJOBS" --wait \
     "$FILEDIR/pwr_sub_python.sh" \
-    "$WRKDIR" "$CHUNK_SIZE" "$NINDEX" "$FILEDIR" "$PCONNDIR" "$PCONNREF" "$NUMTEMP" "$NREP" "$NTIME"
+    "$WRKDIR" "$CHUNK_SIZE" "$NINDEX" "$FILEDIR" "$PCONNDIR" "$PCONNREF" "$NUMTEMP" "$NREP" "$NTIME" "$CONDAENV"
     # Args:  working dir  rows/task   total rows  script dir  pconn pool  reference pconn  templates/sim  simulations/row  timepoints
 fi
 
@@ -406,7 +417,7 @@ fi
 # Memory is elevated to 64GB here because combine_data.py loads and
 # concatenates all chunk outputs for each sample size into memory at once.
 submit "combine_data" "1:00:00" "64GB" "4" -- --wait \
-  "$FILEDIR/combine_data.sh" "$WRKDIR" "$FILEDIR" "$EPSILON"
+  "$FILEDIR/combine_data.sh" "$WRKDIR" "$FILEDIR" "$EPSILON" "$CONDAENV"
 
 # ── Guard 1: at least one output file was created ────────────────────────────
 # Verifies that combine_data.sh produced at least one full_*_cov.npy.
@@ -462,7 +473,7 @@ fi
 # Note: labeled Step 5 rather than Step 4 because ridge model
 # generation (Step 4) runs between combine_data and CV generation.
 submit "cvGen" "1:00:00" "16GB" "2" -- --array=1-"$NUMFILES" --wait \
-  "$FILEDIR/cvGen.sh" "$WRKDIR" "$FILEDIR" "$NUMFILES" "$KFOLDS"
+  "$FILEDIR/cvGen.sh" "$WRKDIR" "$FILEDIR" "$NUMFILES" "$KFOLDS" "$CONDAENV"
 
 # ---------------------------------------------------------------------------
 # Step 6 — Setup CV metrics
@@ -476,7 +487,7 @@ submit "cvGen" "1:00:00" "16GB" "2" -- --array=1-"$NUMFILES" --wait \
 # guard below executes. The total number of expected .npz files is:
 #   NUMFILES (sample sizes) × KFOLDS (folds per size)
 submit "setupCVmetrics" "1:00:00" "16GB" "2" -- --wait \
-  "$FILEDIR/setupCVmetrics.sh" "$WRKDIR" "$FILEDIR"
+  "$FILEDIR/setupCVmetrics.sh" "$WRKDIR" "$FILEDIR" "$CONDAENV"
 
 # ── Guard: verify split files were produced for all size/fold combinations ────
 # Counts all full_*_fold_*_split.npz files written by setupCVmetrics.
@@ -539,7 +550,7 @@ submit "cv" "2:00:00" "32GB" "2" -- \
   --array=1-"$NUMFFILES" --wait \
   --export=ALL,MODEL_FILE="$MODEL_FILE",USE_PCA="$USE_PCA",N_COMPONENTS="$N_COMPONENTS",N_ESTIMATORS="$N_ESTIMATORS",RIDGE_ALPHA="$RIDGE_ALPHA",LASSO_ALPHA="$LASSO_ALPHA",EN_ALPHA="$EN_ALPHA",EN_L1_RATIO="$EN_L1_RATIO",SVR_C="$SVR_C",NN_HIDDEN_LAYERS="$NN_HIDDEN_LAYERS",NN_LR="$NN_LR",GB_N_ESTIMATORS="$GB_N_ESTIMATORS",GB_LR="$GB_LR" \
   -- \
-  "$FILEDIR/cv.sh" "$WRKDIR" "$FILEDIR" "$NUMFILES" "$KFOLDS" "$EPSILON"
+  "$FILEDIR/cv.sh" "$WRKDIR" "$FILEDIR" "$NUMFILES" "$KFOLDS" "$EPSILON" "$CONDAENV"
 
 # ---------------------------------------------------------------------------
 # Step 8 — Final data
@@ -562,7 +573,7 @@ submit "cv" "2:00:00" "32GB" "2" -- \
 # if final_data.sh crashes, the submit() call will propagate a non-zero
 # exit and the pipeline will abort before reaching it.
 submit "final_data" "12:00:00" "96GB" "8" -- --wait \
-  "$FILEDIR/final_data.sh" "$WRKDIR" "$FILEDIR"
+  "$FILEDIR/final_data.sh" "$WRKDIR" "$FILEDIR" "$CONDAENV"
 
 # Pipeline complete — print the manifest path so the caller knows where
 # to find the full record of submitted job IDs and their log file paths.

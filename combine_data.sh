@@ -39,6 +39,7 @@ set -euo pipefail   # Exit on error (-e), unset variable (-u), or pipeline failu
 WRKDIR="$1"    # Root working directory
 FILEDIR="$2"   # Pipeline scripts directory
 EPSILON="$3"   # Epsilon noise magnitude; pass 0 to disable noise addition
+CONDAENV="$4"  # Conda environment to activate for Python execution
 
 # ── Environment ───────────────────────────────────────────────────────────────
 # Change into pwr_data/ so combine_data.py can resolve relative chunk output
@@ -48,8 +49,12 @@ cd "$WRKDIR/pwr_data"
 # Activate the FC_stability conda environment which contains all required
 # Python dependencies (numpy, pandas, etc.). No `module purge` is needed
 # here since this runs as a fresh job with a clean environment.
-source /projects/standard/faird/shared/code/external/envs/miniconda3/load_miniconda3.sh
-conda activate FC_stability
+# Note: the if condition is a workaround for using this on MSI where we have to source the conda environment path
+# without this, activate would would fail. Need to find better solution for production.
+if [[ "$CONDAENV" == "FC_stability" ]]; then
+  source /projects/standard/faird/shared/code/external/envs/miniconda3/load_miniconda3.sh
+fi
+conda activate "$CONDAENV"
 
 # ── Run ───────────────────────────────────────────────────────────────────────
 python "$FILEDIR/combine_data.py" "$WRKDIR" "$FILEDIR" "$EPSILON"

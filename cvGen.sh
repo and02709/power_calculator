@@ -44,10 +44,11 @@
 #SBATCH --job-name cvGen
 
 # ── Arguments ─────────────────────────────────────────────────────────────────
-WRKDIR=$1      # Root working directory
-FILEDIR=$2     # Pipeline scripts directory
-NUMFILES=$3    # Total number of sample sizes; passed through to cvGen.py
-KFOLDS=$4      # Number of CV folds per sample size
+WRKDIR="$1"      # Root working directory
+FILEDIR="$2"     # Pipeline scripts directory
+NUMFILES="$3"    # Total number of sample sizes; passed through to cvGen.py
+KFOLDS="$4"      # Number of CV folds per sample size
+CONDAENV="$5"   # Conda environment to activate for Python dependencies
 
 # SLURM_ARRAY_TASK_ID is the 1-based index of this task within the array.
 # Passed to cvGen.py as INDEX, which uses it to select the target sample size.
@@ -58,7 +59,12 @@ INDEX=${SLURM_ARRAY_TASK_ID}
 # environment. Ensure all required packages (numpy, scikit-learn, etc.) are
 # available in the loaded module, or switch to a conda activate approach
 # if dependency conflicts arise.
-module load python3
+# Note: the if condition is a workaround for using this on MSI where we have to source the conda environment path
+# without this, activate would would fail. Need to find better solution for production.
+if [[ "$CONDAENV" == "FC_stability" ]]; then
+  source /projects/standard/faird/shared/code/external/envs/miniconda3/load_miniconda3.sh
+fi
+conda activate "$CONDAENV"
 
 # ── Run ───────────────────────────────────────────────────────────────────────
 python3 $FILEDIR/cvGen.py $WRKDIR $FILEDIR $NUMFILES $KFOLDS $INDEX

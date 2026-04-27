@@ -41,11 +41,12 @@
 #SBATCH --job-name cv
 
 # ── Arguments ─────────────────────────────────────────────────────────────────
-WRKDIR=$1      # Root working directory
-FILEDIR=$2     # Pipeline scripts directory
-NUMFILES=$3    # Number of sample sizes (used by cv.py to resolve INDEX → size)
-KFOLDS=$4      # Number of CV folds per sample size
-EPSILON=$5     # Noise scale factor (passed through to cv.py for reference)
+WRKDIR="$1"      # Root working directory
+FILEDIR="$2"     # Pipeline scripts directory
+NUMFILES="$3"    # Number of sample sizes (used by cv.py to resolve INDEX → size)
+KFOLDS="$4"      # Number of CV folds per sample size
+EPSILON="$5"     # Noise scale factor (passed through to cv.py for reference)
+CONDAENV="$6"    # Conda environment name (passed through to cv.py for environment activation)
 
 # 1-based array task ID; cv.py maps this to a (size, fold) pair via cv.pkl
 INDEX=${SLURM_ARRAY_TASK_ID}
@@ -91,8 +92,12 @@ fi
 # ── Environment ───────────────────────────────────────────────────────────────
 # Purge inherited modules before activating conda to avoid version conflicts.
 module purge || true   # || true prevents abort under set -e if no modules loaded
-source /projects/standard/faird/shared/code/external/envs/miniconda3/load_miniconda3.sh
-conda activate FC_stability
+# Note: the if condition is a workaround for using this on MSI where we have to source the conda environment path
+# without this, activate would would fail. Need to find better solution for production.
+if [[ "$CONDAENV" == "FC_stability" ]]; then
+  source /projects/standard/faird/shared/code/external/envs/miniconda3/load_miniconda3.sh
+fi
+conda activate "$CONDAENV"
 
 # ── Run ───────────────────────────────────────────────────────────────────────
 # NN_HIDDEN_LAYERS is quoted to prevent word-splitting on the comma separator

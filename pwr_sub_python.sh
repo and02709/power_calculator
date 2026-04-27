@@ -46,6 +46,7 @@ PCONNREF="${6}"     # Reference pconn — passed as --pconn1 (accepted for compa
 NUMTEMP="${7}"      # Number of pconn templates to average per simulation row
 NREP="${8}"         # Number of simulation repetitions per index row
 NTIME="${9}"        # Positional timepoint count (overridden by N_TIME below)
+CONDENV="${10}"     # Conda environment to activate for Python execution
 
 TASK_ID="${SLURM_ARRAY_TASK_ID}"   # 1-based index assigned by SLURM for this task
 
@@ -77,8 +78,12 @@ fi
 # Purge any inherited modules to avoid version conflicts, then activate the
 # FC_stability conda environment which contains all required Python dependencies.
 module purge || true   # || true prevents -e from aborting if no modules are loaded
-source /projects/standard/faird/shared/code/external/envs/miniconda3/load_miniconda3.sh
-conda activate FC_stability
+# Note: the if condition is a workaround for using this on MSI where we have to source the conda environment path
+# without this, activate would would fail. Need to find better solution for production.
+if [[ "$CONDAENV" == "FC_stability" ]]; then
+  source /projects/standard/faird/shared/code/external/envs/miniconda3/load_miniconda3.sh
+fi
+conda activate "$CONDAENV"
 
 # Resolve the active Python binary explicitly after conda activation.
 PYTHON_BIN=$(which python)
