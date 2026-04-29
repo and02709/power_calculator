@@ -1,21 +1,80 @@
-from typing import Optional
 """
-models/ridge.py — Ridge Regression (PCA preprocessing optional).
+models/ridge.py — Ridge Regression with built-in cross-validated alpha selection.
 
 Registered as "ridge".
-Usage: --model_file ridge  [--ridge_alpha A] [--n_components N ] [--pca]
+Usage: --model_file ridge  [--ridge_alphas "1,10,100,1e3,1e4,1e5"]
+                           [--ridge_cv_folds N]
+                           [--pca]  [--n_components N]
+
+Design
+------
+Uses ``RidgeCV`` rather than wrapping ``Ridge`` in ``GridSearchCV``.
+sklearn's ``RidgeCV`` selects alpha via an efficient analytic LOO or k-fold
+path (QR-based; no re-fitting per candidate), making it significantly cheaper
+than a ``GridSearchCV`` loop for the same candidate set.
+
+Pipeline layout (always):
+    StandardScaler  →  [PCA →]  RidgeCV
+
+Because all preprocessing lives inside the Pipeline, sklearn's
+``cross_validate()`` guarantees that the scaler (and PCA, if used) are
+fitted only on the training fold of each outer split — no data leakage.
+
+After fitting, ``pipeline[-1].alpha_`` holds the alpha chosen for that fold
+and is printed by ``cv.py``'s per-fold diagnostics loop.
+
+Nested CV alternative
+---------------------
+If you need explicit nested CV with a ``GridSearchCV`` inner loop (e.g. to
+inspect ``best_params_`` per fold or to benchmark against ``RidgeCV``),
+use ``--model_file ridge_nested`` instead.
 """
 
-
 import argparse
+from typing import List
 
-import numpy as np
 from sklearn.decomposition import PCA
-from sklearn.linear_model import Ridge
+from sklearn.linear_model import RidgeCV
+from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
 from models.base import CVModel, register
 
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _parse_alphas(s: str) -> List[float]:
+    """
+    Parse a comma-separated string of floats into a Python list.
+
+    Parameters
+    ----------
+    s : str
+        E.g. ``"1,10,100,1e3,1e4,1e5"``
+
+    Returns
+    -------
+    list of float
+        E.g. ``[1.0, 10.0, 100.0, 1000.0, 10000.0, 100000.0]``
+
+    Raises
+    ------
+    argparse.ArgumentTypeError
+        If any token cannot be converted to float.
+    """
+    try:
+        return [float(x.strip()) for x in s.split(",")]
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"--ridge_alphas must be comma-separated floats, got: '{s}'"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Plugin
+# ---------------------------------------------------------------------------
 
 @register("ridge")
 class RidgeModel(CVModel):
@@ -24,51 +83,88 @@ class RidgeModel(CVModel):
     def cli_args(cls, parser: argparse.ArgumentParser) -> None:
         g = parser.add_argument_group("ridge options")
         g.add_argument(
-            "--ridge_alpha", type=float, default=1.0,
-            help="Regularisation strength α (default: 1.0)"
+            "--ridge_alphas",
+            type=str,
+            default="1,10,100,1000,10000,100000",
+            help=(
+                "Comma-separated regularisation strength candidates for RidgeCV. "
+                "RidgeCV selects the best alpha via internal k-fold CV on each "
+                "outer training fold.  (default: '1,10,100,1e3,1e4,1e5')"
+            ),
         )
         g.add_argument(
-            "--n_components", type=int, default=500,
-            help="PCA components before Ridge (default: 500; only used if --pca is set)"
+            "--ridge_cv_folds",
+            type=int,
+            default=5,
+            help=(
+                "Number of inner CV folds for RidgeCV alpha selection. "
+                "Pass 0 to use leave-one-out (RidgeCV default, LOO). "
+                "(default: 5)"
+            ),
         )
         g.add_argument(
-            "--pca", action="store_true", default=False,
-            help="Apply PCA preprocessing (default: off)"
+            "--pca",
+            action="store_true",
+            default=False,
+            help=(
+                "Prepend a PCA dimensionality-reduction step to the pipeline. "
+                "Recommended for very high-dimensional FC matrices. "
+                "(default: off)"
+            ),
+        )
+        g.add_argument(
+            "--n_components",
+            type=int,
+            default=500,
+            help=(
+                "Number of PCA components to retain. "
+                "Clamped to min(n_components, n_features, n_samples) at fit time. "
+                "Only used when --pca is set.  (default: 500)"
+            ),
         )
 
-    def __init__(self, args: argparse.Namespace) -> None:
-        self._alpha = args.ridge_alpha
-        self._n_components = args.n_components
-        self._use_pca = args.pca
-        self._scaler: Optional[StandardScaler] = None
-        self._pca: Optional[PCA] = None
-        self._model: Optional[Ridge] = None
+    @classmethod
+    def build_estimator(cls, args: argparse.Namespace):
+        """
+        Return an unfitted Pipeline:  StandardScaler → [PCA →] RidgeCV.
 
-    def _preprocess_train(self, X: np.ndarray) -> np.ndarray:
-        self._scaler = StandardScaler()
-        X_sc = self._scaler.fit_transform(X)
-        if self._use_pca:
-            n_comp = min(self._n_components, X.shape[0], X.shape[1])
-            print(f"[Ridge] PCA n_components={n_comp}")
-            self._pca = PCA(n_components=n_comp, svd_solver="randomized", random_state=42)
-            return self._pca.fit_transform(X_sc)
-        return X_sc
+        Parameters
+        ----------
+        args.ridge_alphas   : str
+            Comma-separated alpha candidates, e.g. ``"1,10,100,1e3,1e4,1e5"``.
+        args.ridge_cv_folds : int
+            Inner CV folds for alpha selection. ``0`` → LOO (``cv=None``).
+        args.pca            : bool
+            Whether to include a PCA step between scaler and RidgeCV.
+        args.n_components   : int
+            PCA dimensionality (only relevant when ``args.pca`` is True).
 
-    def _preprocess_test(self, X: np.ndarray) -> np.ndarray:
-        X_sc = self._scaler.transform(X)
-        if self._use_pca:
-            return self._pca.transform(X_sc)
-        return X_sc
+        Returns
+        -------
+        sklearn.pipeline.Pipeline
+            Unfitted pipeline ready for ``cross_validate()``.
+        """
+        alphas = _parse_alphas(args.ridge_alphas)
+        # cv=None → RidgeCV uses efficient leave-one-out; cv=k → k-fold
+        inner_cv = args.ridge_cv_folds if args.ridge_cv_folds > 0 else None
 
-    def fit(self, X_train: np.ndarray, y_train: np.ndarray) -> None:
-        X_pp = self._preprocess_train(X_train)
-        print(f"[Ridge] Fitting Ridge (alpha={self._alpha}) ...")
-        self._model = Ridge(alpha=self._alpha)
-        self._model.fit(X_pp, y_train)
-
-    def predict(self, X_test: np.ndarray) -> np.ndarray:
-        assert self._model is not None
-        return self._model.predict(self._preprocess_test(X_test))
-
-    def extra_info(self) -> dict:
-        return {"ridge_alpha": self._alpha, "use_pca": self._use_pca}
+        steps = [StandardScaler()]
+        if args.pca:
+            steps.append(
+                PCA(
+                    n_components=args.n_components,
+                    svd_solver="randomized",
+                    random_state=42,
+                )
+            )
+        steps.append(
+            RidgeCV(
+                alphas=alphas,
+                cv=inner_cv,
+                scoring="neg_root_mean_squared_error",
+                # store_cv_results is only compatible with LOO (cv=None);
+                # when cv is an integer k-fold, the attribute is unavailable.
+                store_cv_results=(inner_cv is None),
+            )
+        )
+        return make_pipeline(*steps)

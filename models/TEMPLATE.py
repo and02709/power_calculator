@@ -1,37 +1,40 @@
-from typing import Optional
 """
-models/TEMPLATE.py — Copy this file to add a new model plugin.
+models/TEMPLATE.py — Copy this file to add a new model plugin (v2 interface).
 
 Steps
 -----
-1. Copy this file to  models/<your_model_name>.py
-   (use lowercase_with_underscores for the name, e.g. models/xgboost_reg.py)
+1.  Copy to  models/<your_model_name>.py
+    (use lowercase_with_underscores, e.g. models/xgboost_reg.py)
 
-2. Replace every occurrence of "TEMPLATE" / "template" with your model name.
+2.  Replace every occurrence of "template" / "TEMPLATE" with your model name.
 
-3. Fill in the three required methods:
-     cli_args  — add argparse flags your model needs
-     __init__  — store hyperparameters; build the sklearn/PyTorch/... estimator
-     fit       — train on (X_train, y_train)
-     predict   — return predictions for X_test
+3.  Fill in ``cli_args()`` with any argparse flags your model needs, and
+    ``build_estimator()`` to return an unfitted sklearn Pipeline or GridSearchCV.
 
-4. Optionally override extra_info() to surface diagnostics in the stamp file.
+4.  Run locally to smoke-test:
+        python3 scripts/cv_reference.py --model_file <your_model_name>
 
-5. Run:
-     python3 cv.py WRKDIR FILEDIR NUMFILES KFOLDS EPSILON INDEX \\
-         --model_file <your_model_name>
+5.  Submit to the cluster:
+        python3 cv.py WRKDIR FILEDIR NUMFILES INDEX --model_file <your_model_name>
 
-That's it.  No changes to cv.py, cv.sh, or any other file are needed.
+No changes to cv.py, cv.sh, or any other file are needed.
+
+Interface summary (v2)
+----------------------
+Plugins do NOT implement fit() / predict() directly.
+sklearn's cross_validate() calls those on the estimator returned by build_estimator().
+
+Fixed hyperparameter  →  return make_pipeline(StandardScaler(), YourModel(param=val))
+Built-in CV variant   →  return make_pipeline(StandardScaler(), YourModelCV(...))
+Tuned via grid search →  return GridSearchCV(make_pipeline(...), param_grid, cv=inner_cv)
 """
-
 
 import argparse
 
-import numpy as np
-from sklearn.decomposition import PCA
+from sklearn.linear_model import Ridge         # Replace with your estimator
+from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
-# -- The two imports you always need ----------------------------------------
 from models.base import CVModel, register
 
 
@@ -45,63 +48,63 @@ class TemplateModel(CVModel):
     @classmethod
     def cli_args(cls, parser: argparse.ArgumentParser) -> None:
         g = parser.add_argument_group("template options")
-        # Add your model's hyperparameter flags here, e.g.:
-        g.add_argument("--template_param", type=float, default=1.0,
-                       help="Example hyperparameter (default: 1.0)")
-        g.add_argument("--n_components", type=int, default=500,
-                       help="PCA components (default: 500; only used if --pca is set)")
-        g.add_argument("--pca", action="store_true", default=False,
-                       help="Apply PCA preprocessing (default: off)")
+        # Add your model's hyperparameter flags here.
+        g.add_argument(
+            "--template_param",
+            type=float,
+            default=1.0,
+            help="Example hyperparameter (default: 1.0).",
+        )
+        # Optional PCA flags — include if your model benefits from dimensionality
+        # reduction (copy this block verbatim; cv.py passes --pca / --n_components).
+        g.add_argument(
+            "--pca",
+            action="store_true",
+            default=False,
+            help="Prepend PCA to the pipeline (default: off).",
+        )
+        g.add_argument(
+            "--n_components",
+            type=int,
+            default=500,
+            help="PCA components (only used when --pca is set; default: 500).",
+        )
 
     # ------------------------------------------------------------------
-    # 2. Constructor
+    # 2. Estimator factory
     # ------------------------------------------------------------------
-    def __init__(self, args: argparse.Namespace) -> None:
-        self._param = args.template_param
-        self._n_components = args.n_components
-        self._use_pca = args.pca
+    @classmethod
+    def build_estimator(cls, args: argparse.Namespace):
+        """
+        Return an unfitted sklearn estimator.
 
-        # Internal state
-        self._scaler: Optional[StandardScaler] = None
-        self._pca: Optional[PCA] = None
-        self._model = None  # replace with your estimator type
+        The object returned here is passed directly to cross_validate().
+        sklearn calls .fit(X_train, y_train) and .predict(X_test) on each fold.
 
-    # ------------------------------------------------------------------
-    # 3. Preprocessing helpers (copy-paste boilerplate, usually unchanged)
-    # ------------------------------------------------------------------
-    def _preprocess_train(self, X: np.ndarray) -> np.ndarray:
-        self._scaler = StandardScaler()
-        X_sc = self._scaler.fit_transform(X)
-        if self._use_pca:
-            n_comp = min(self._n_components, X.shape[0], X.shape[1])
-            print(f"[TEMPLATE] PCA n_components={n_comp}")
-            self._pca = PCA(n_components=n_comp, svd_solver="randomized", random_state=42)
-            return self._pca.fit_transform(X_sc)
-        return X_sc
+        Common patterns
+        ---------------
+        Fixed hyperparameter (no tuning):
+            return make_pipeline(StandardScaler(), Ridge(alpha=args.template_param))
 
-    def _preprocess_test(self, X: np.ndarray) -> np.ndarray:
-        X_sc = self._scaler.transform(X)
-        return self._pca.transform(X_sc) if self._use_pca else X_sc
+        Built-in CV estimator (e.g. RidgeCV):
+            from sklearn.linear_model import RidgeCV
+            return make_pipeline(StandardScaler(), RidgeCV(alphas=[1, 10, 100]))
 
-    # ------------------------------------------------------------------
-    # 4. fit / predict
-    # ------------------------------------------------------------------
-    def fit(self, X_train: np.ndarray, y_train: np.ndarray) -> None:
-        X_pp = self._preprocess_train(X_train)
-        print(f"[TEMPLATE] Fitting with param={self._param} ...")
+        Nested GridSearchCV:
+            from sklearn.model_selection import GridSearchCV, KFold
+            pipe = make_pipeline(StandardScaler(), Ridge())
+            param_grid = {'ridge__alpha': [1, 10, 100]}
+            return GridSearchCV(pipe, param_grid, cv=KFold(5), scoring='neg_root_mean_squared_error')
+        """
+        from sklearn.decomposition import PCA  # import here to keep top-level clean
 
-        # ------ Replace this block with your model ------
-        # from sklearn.linear_model import Ridge
-        # self._model = Ridge(alpha=self._param)
-        # self._model.fit(X_pp, y_train)
-        raise NotImplementedError("Replace this stub with your model's fit() call.")
+        steps = [StandardScaler()]
+        if args.pca:
+            steps.append(PCA(n_components=args.n_components,
+                             svd_solver="randomized", random_state=42))
 
-    def predict(self, X_test: np.ndarray) -> np.ndarray:
-        assert self._model is not None, "Call fit() before predict()"
-        return self._model.predict(self._preprocess_test(X_test))
+        # ---- Replace this line with your estimator ----
+        steps.append(Ridge(alpha=args.template_param))
+        # -----------------------------------------------
 
-    # ------------------------------------------------------------------
-    # 5. Optional diagnostics for the stamp file
-    # ------------------------------------------------------------------
-    def extra_info(self) -> dict:
-        return {"template_param": self._param, "use_pca": self._use_pca}
+        return make_pipeline(*steps)

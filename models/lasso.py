@@ -1,17 +1,30 @@
-from typing import Optional
 """
-models/lasso.py — Lasso Regression (L1).
+models/lasso.py — Lasso Regression with built-in cross-validated alpha selection.
 
 Registered as "lasso".
-Usage: --model_file lasso  [--lasso_alpha A] [--lasso_max_iter N] [--n_components N ] [--pca]
-"""
+Usage: --model_file lasso  [--lasso_n_alphas N]  [--lasso_cv_folds N]
+                           [--lasso_max_iter N]
+                           [--pca]  [--n_components N]
 
+Design
+------
+Uses ``LassoCV`` rather than wrapping ``Lasso`` in ``GridSearchCV``.
+``LassoCV`` searches a log-spaced grid of ``n_alphas`` candidates using an
+efficient coordinate-descent path (the full regularisation path is computed
+once per inner fold rather than once per candidate), making it significantly
+cheaper than a ``GridSearchCV`` loop for the same candidate count.
+
+Pipeline layout:
+    StandardScaler  →  [PCA →]  LassoCV
+
+After fitting, ``pipeline[-1].alpha_`` holds the alpha chosen for that fold.
+"""
 
 import argparse
 
-import numpy as np
 from sklearn.decomposition import PCA
-from sklearn.linear_model import Lasso
+from sklearn.linear_model import LassoCV
+from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
 from models.base import CVModel, register
@@ -24,61 +37,82 @@ class LassoModel(CVModel):
     def cli_args(cls, parser: argparse.ArgumentParser) -> None:
         g = parser.add_argument_group("lasso options")
         g.add_argument(
-            "--lasso_alpha", type=float, default=0.01,
-            help="L1 regularisation strength (default: 0.01)"
+            "--lasso_n_alphas",
+            type=int,
+            default=100,
+            help=(
+                "Number of alpha candidates on a log scale for LassoCV. "
+                "LassoCV generates this many candidates automatically between "
+                "alpha_max (where all coefficients are zero) and alpha_max/1000. "
+                "Passed as the 'alphas' integer parameter to LassoCV. "
+                "(default: 100)"
+            ),
         )
         g.add_argument(
-            "--lasso_max_iter", type=int, default=5000,
-            help="Max iterations for coordinate descent (default: 5000)"
+            "--lasso_cv_folds",
+            type=int,
+            default=5,
+            help=(
+                "Number of inner CV folds for LassoCV alpha selection. "
+                "(default: 5)"
+            ),
         )
         g.add_argument(
-            "--n_components", type=int, default=500,
-            help="PCA components before Lasso (default: 500)"
+            "--lasso_max_iter",
+            type=int,
+            default=5000,
+            help=(
+                "Maximum number of coordinate-descent iterations. "
+                "Increase if convergence warnings appear. "
+                "(default: 5000)"
+            ),
         )
         g.add_argument(
-            "--pca", action="store_true", default=False,
-            help="Apply PCA preprocessing (default: off)"
+            "--pca",
+            action="store_true",
+            default=False,
+            help="Prepend PCA to the pipeline (default: off).",
+        )
+        g.add_argument(
+            "--n_components",
+            type=int,
+            default=500,
+            help="PCA components (only used when --pca is set; default: 500).",
         )
 
-    def __init__(self, args: argparse.Namespace) -> None:
-        self._alpha = args.lasso_alpha
-        self._max_iter = args.lasso_max_iter
-        self._n_components = args.n_components
-        self._use_pca = args.pca
-        self._scaler: Optional[StandardScaler] = None
-        self._pca: Optional[PCA] = None
-        self._model: Optional[Lasso] = None
+    @classmethod
+    def build_estimator(cls, args: argparse.Namespace):
+        """
+        Return an unfitted Pipeline:  StandardScaler → [PCA →] LassoCV.
 
-    def _preprocess_train(self, X: np.ndarray) -> np.ndarray:
-        self._scaler = StandardScaler()
-        X_sc = self._scaler.fit_transform(X)
-        if self._use_pca:
-            n_comp = min(self._n_components, X.shape[0], X.shape[1])
-            print(f"[Lasso] PCA n_components={n_comp}")
-            self._pca = PCA(n_components=n_comp, svd_solver="randomized", random_state=42)
-            return self._pca.fit_transform(X_sc)
-        return X_sc
+        Parameters
+        ----------
+        args.lasso_n_alphas  : int  — number of log-spaced alpha candidates
+        args.lasso_cv_folds  : int  — inner CV folds for alpha selection
+        args.lasso_max_iter  : int  — max coordinate-descent iterations
+        args.pca             : bool — include PCA step
+        args.n_components    : int  — PCA dimensionality
 
-    def _preprocess_test(self, X: np.ndarray) -> np.ndarray:
-        X_sc = self._scaler.transform(X)
-        return self._pca.transform(X_sc) if self._use_pca else X_sc
-
-    def fit(self, X_train: np.ndarray, y_train: np.ndarray) -> None:
-        X_pp = self._preprocess_train(X_train)
-        print(f"[Lasso] Fitting Lasso (alpha={self._alpha}, max_iter={self._max_iter}) ...")
-        self._model = Lasso(alpha=self._alpha, max_iter=self._max_iter, random_state=42)
-        self._model.fit(X_pp, y_train)
-        n_nonzero = int(np.sum(self._model.coef_ != 0))
-        print(f"[Lasso] Non-zero coefficients: {n_nonzero} / {len(self._model.coef_)}")
-
-    def predict(self, X_test: np.ndarray) -> np.ndarray:
-        assert self._model is not None
-        return self._model.predict(self._preprocess_test(X_test))
-
-    def extra_info(self) -> dict:
-        n_nz = int(np.sum(self._model.coef_ != 0)) if self._model is not None else None
-        return {
-            "lasso_alpha": self._alpha,
-            "use_pca": self._use_pca,
-            "n_nonzero_coef": n_nz,
-        }
+        Returns
+        -------
+        sklearn.pipeline.Pipeline
+        """
+        steps = [StandardScaler()]
+        if args.pca:
+            steps.append(
+                PCA(
+                    n_components=args.n_components,
+                    svd_solver="randomized",
+                    random_state=42,
+                )
+            )
+        steps.append(
+            LassoCV(
+                alphas=args.lasso_n_alphas,   # int → log-spaced grid of that size
+                cv=args.lasso_cv_folds,
+                max_iter=args.lasso_max_iter,
+                random_state=42,
+                n_jobs=-1,
+            )
+        )
+        return make_pipeline(*steps)

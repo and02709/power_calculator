@@ -1,20 +1,36 @@
-from typing import Optional
 """
-models/gradient_boosting.py — Gradient Boosting Regressor (sklearn).
+models/gradient_boosting.py — Gradient Boosting Regressor.
 
 Registered as "gradient_boosting".
-Usage: --model_file gradient_boosting  [--gb_n_estimators N] [--gb_lr LR] ...
+Usage: --model_file gradient_boosting  [--gb_n_estimators N]
+                                       [--gb_lr LR]
+                                       [--gb_max_depth N]
+                                       [--gb_subsample F]
+                                       [--gb_tune]  [--gb_k_inner N]
+                                       [--pca]  [--n_components N]
 
-For a faster drop-in, install lightgbm/xgboost and swap the underlying
-estimator while keeping this CVModel shell.
+Design
+------
+By default returns a Pipeline with fixed hyperparameters.  If --gb_tune is
+set, wraps the pipeline in a GridSearchCV that searches over learning_rate
+and max_depth (the two most impactful GBM hyperparameters), keeping
+n_estimators fixed to control compute cost.
+
+Pipeline layout:
+    StandardScaler  →  [PCA →]  GradientBoostingRegressor
+
+For faster alternatives on large datasets, swap GradientBoostingRegressor
+for HistGradientBoostingRegressor (sklearn) or install lightgbm/xgboost and
+replace the estimator here — the Pipeline and GridSearchCV wrapper remain
+identical.
 """
-
 
 import argparse
 
-import numpy as np
 from sklearn.decomposition import PCA
 from sklearn.ensemble import GradientBoostingRegressor
+from sklearn.model_selection import GridSearchCV, KFold
+from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
 from models.base import CVModel, register
@@ -26,68 +42,140 @@ class GradientBoostingModel(CVModel):
     @classmethod
     def cli_args(cls, parser: argparse.ArgumentParser) -> None:
         g = parser.add_argument_group("gradient_boosting options")
-        g.add_argument("--gb_n_estimators", type=int,   default=300,
-                       help="Number of boosting stages (default: 300)")
-        g.add_argument("--gb_lr",           type=float, default=0.05,
-                       help="Learning rate / shrinkage (default: 0.05)")
-        g.add_argument("--gb_max_depth",    type=int,   default=4,
-                       help="Max tree depth (default: 4)")
-        g.add_argument("--gb_subsample",    type=float, default=0.8,
-                       help="Fraction of samples per tree (default: 0.8)")
-        g.add_argument("--n_components",    type=int,   default=200,
-                       help="PCA components (default: 200)")
-        g.add_argument("--pca", action="store_true", default=False,
-                       help="Apply PCA preprocessing (default: off)")
-
-    def __init__(self, args: argparse.Namespace) -> None:
-        self._n_estimators = args.gb_n_estimators
-        self._lr           = args.gb_lr
-        self._max_depth    = args.gb_max_depth
-        self._subsample    = args.gb_subsample
-        self._n_components = args.n_components
-        self._use_pca      = args.pca
-        self._scaler: Optional[StandardScaler] = None
-        self._pca: Optional[PCA] = None
-        self._model: Optional[GradientBoostingRegressor] = None
-
-    def _preprocess_train(self, X: np.ndarray) -> np.ndarray:
-        self._scaler = StandardScaler()
-        X_sc = self._scaler.fit_transform(X)
-        if self._use_pca:
-            n_comp = min(self._n_components, X.shape[0], X.shape[1])
-            print(f"[GB] PCA n_components={n_comp}")
-            self._pca = PCA(n_components=n_comp, svd_solver="randomized", random_state=42)
-            return self._pca.fit_transform(X_sc)
-        return X_sc
-
-    def _preprocess_test(self, X: np.ndarray) -> np.ndarray:
-        X_sc = self._scaler.transform(X)
-        return self._pca.transform(X_sc) if self._use_pca else X_sc
-
-    def fit(self, X_train: np.ndarray, y_train: np.ndarray) -> None:
-        X_pp = self._preprocess_train(X_train)
-        print(
-            f"[GB] GradientBoostingRegressor n_estimators={self._n_estimators} "
-            f"lr={self._lr} max_depth={self._max_depth} subsample={self._subsample}"
+        g.add_argument(
+            "--gb_n_estimators",
+            type=int,
+            default=300,
+            help="Number of boosting stages (trees).  (default: 300)",
         )
-        self._model = GradientBoostingRegressor(
-            n_estimators=self._n_estimators,
-            learning_rate=self._lr,
-            max_depth=self._max_depth,
-            subsample=self._subsample,
-            random_state=42,
+        g.add_argument(
+            "--gb_lr",
+            type=float,
+            default=0.05,
+            help=(
+                "Learning rate / shrinkage applied to each tree's contribution. "
+                "Lower values require more trees but generalise better. "
+                "(default: 0.05)"
+            ),
         )
-        self._model.fit(X_pp, y_train)
-        print(f"[GB] Train R²: {self._model.train_score_[-1]:.4f}")
+        g.add_argument(
+            "--gb_max_depth",
+            type=int,
+            default=4,
+            help=(
+                "Maximum depth of each individual tree.  "
+                "Shallower trees reduce overfitting.  (default: 4)"
+            ),
+        )
+        g.add_argument(
+            "--gb_subsample",
+            type=float,
+            default=0.8,
+            help=(
+                "Fraction of training samples used to fit each tree (stochastic GBM). "
+                "Values < 1.0 reduce variance.  (default: 0.8)"
+            ),
+        )
+        g.add_argument(
+            "--gb_tune",
+            action="store_true",
+            default=False,
+            help=(
+                "Wrap the pipeline in GridSearchCV to tune learning_rate and "
+                "max_depth via nested CV.  Expensive — use sparingly.  (default: off)"
+            ),
+        )
+        g.add_argument(
+            "--gb_k_inner",
+            type=int,
+            default=3,
+            help=(
+                "Inner CV folds for GridSearchCV (only used when --gb_tune is set). "
+                "(default: 3)"
+            ),
+        )
+        g.add_argument(
+            "--pca",
+            action="store_true",
+            default=False,
+            help="Prepend PCA to the pipeline (default: off).",
+        )
+        g.add_argument(
+            "--n_components",
+            type=int,
+            default=200,
+            help=(
+                "PCA components (only used when --pca is set). "
+                "Default 200 — GBM can be slow on high-dimensional input.  (default: 200)"
+            ),
+        )
 
-    def predict(self, X_test: np.ndarray) -> np.ndarray:
-        assert self._model is not None
-        return self._model.predict(self._preprocess_test(X_test))
+    @classmethod
+    def build_estimator(cls, args: argparse.Namespace):
+        """
+        Return a Pipeline or GridSearchCV(Pipeline) for Gradient Boosting.
 
-    def extra_info(self) -> dict:
-        return {
-            "gb_n_estimators": self._n_estimators,
-            "gb_lr": self._lr,
-            "gb_max_depth": self._max_depth,
-            "use_pca": self._use_pca,
+        Without --gb_tune
+        ~~~~~~~~~~~~~~~~~
+        Pipeline(StandardScaler → [PCA →] GradientBoostingRegressor) with
+        hyperparameters fixed from CLI flags.
+
+        With --gb_tune
+        ~~~~~~~~~~~~~~
+        GridSearchCV searching over:
+          ``gradientboostingregressor__learning_rate`` : [0.01, 0.05, 0.1]
+          ``gradientboostingregressor__max_depth``     : [3, 4, 6]
+        n_estimators is held fixed to control compute cost.
+
+        Parameters
+        ----------
+        args.gb_n_estimators : int
+        args.gb_lr           : float
+        args.gb_max_depth    : int
+        args.gb_subsample    : float
+        args.gb_tune         : bool
+        args.gb_k_inner      : int
+        args.pca             : bool
+        args.n_components    : int
+
+        Returns
+        -------
+        Pipeline  or  GridSearchCV(Pipeline)
+        """
+        steps = [StandardScaler()]
+        if args.pca:
+            steps.append(
+                PCA(
+                    n_components=args.n_components,
+                    svd_solver="randomized",
+                    random_state=42,
+                )
+            )
+        steps.append(
+            GradientBoostingRegressor(
+                n_estimators=args.gb_n_estimators,
+                learning_rate=args.gb_lr,
+                max_depth=args.gb_max_depth,
+                subsample=args.gb_subsample,
+                random_state=42,
+            )
+        )
+        pipe = make_pipeline(*steps)
+
+        if not args.gb_tune:
+            return pipe
+
+        param_grid = {
+            "gradientboostingregressor__learning_rate": [0.01, 0.05, 0.1],
+            "gradientboostingregressor__max_depth":     [3, 4, 6],
         }
+        inner_cv = KFold(n_splits=args.gb_k_inner, shuffle=True, random_state=42)
+        return GridSearchCV(
+            estimator=pipe,
+            param_grid=param_grid,
+            cv=inner_cv,
+            scoring="neg_root_mean_squared_error",
+            refit=True,
+            n_jobs=1,   # GBM is serial internally; avoid nested parallelism
+            verbose=1,
+        )

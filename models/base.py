@@ -1,31 +1,56 @@
 """
 models/base.py — Abstract base class and global registry for CV model plugins.
 
+Interface version: 2 (sklearn cross_validate edition)
+
 Every plugin file (e.g. models/ridge.py) must:
   1. Subclass CVModel
-  2. Call register() at module level
+  2. Decorate the class with @register("<name>")  (name = file stem)
+  3. Implement cli_args(parser) — register argparse flags
+  4. Implement build_estimator(args) — return an unfitted sklearn estimator
 
-The registry is keyed by the plugin *file stem* (e.g. "ridge", "lasso",
-"random_forest") so that `--model_file ridge` resolves to models/ridge.py.
+Interface change from v1
+------------------------
+v1 required three methods on each plugin:
+    fit(X_train, y_train)     — plugins managed their own preprocessing
+    predict(X_test)           — and a manual train/test split
+
+v2 requires one factory classmethod:
+    build_estimator(args) -> sklearn estimator
+
+    The returned object is passed directly to sklearn's cross_validate(),
+    which handles fold generation, fitting, and scoring.  Returning a
+    Pipeline (rather than a bare estimator) guarantees that preprocessing
+    steps (StandardScaler, PCA) are fitted only on the training fold of
+    each split, preventing data leakage.
+
+    For models that require hyperparameter tuning, build_estimator() should
+    return a GridSearchCV wrapping a Pipeline.  cross_validate()'s outer
+    loop then sees a single estimator; GridSearchCV manages the inner CV
+    automatically on each outer training fold.
 """
-
 
 import abc
 import argparse
 from typing import Dict, Type
 
-import numpy as np
+from sklearn.base import BaseEstimator  # for type hints only
 
 
 # ---------------------------------------------------------------------------
-# Global registry: stem -> class
+# Global registry: file stem -> class
 # ---------------------------------------------------------------------------
 _REGISTRY: Dict[str, Type["CVModel"]] = {}
 
 
 def register(name: str):
-    """Class decorator that registers a CVModel subclass under `name`."""
-    def _inner(cls: Type[CVModel]):
+    """
+    Class decorator — registers a CVModel subclass under *name*.
+
+    *name* must match the plugin's filename stem (e.g. ``ridge`` for
+    ``models/ridge.py``) so that ``--model_file ridge`` resolves correctly.
+    """
+    def _inner(cls: Type["CVModel"]):
         if name in _REGISTRY:
             raise KeyError(f"Model '{name}' is already registered.")
         _REGISTRY[name] = cls
@@ -34,17 +59,19 @@ def register(name: str):
 
 
 def get_model_class(name: str) -> Type["CVModel"]:
+    """Look up a registered model class by name, raising ValueError on miss."""
     if name not in _REGISTRY:
         available = sorted(_REGISTRY.keys())
         raise ValueError(
             f"Unknown model '{name}'. "
             f"Available models: {available}\n"
-            f"To add a new model, create models/<name>.py and subclass CVModel."
+            "To add a new model, create models/<name>.py and subclass CVModel."
         )
     return _REGISTRY[name]
 
 
 def list_models():
+    """Return a sorted list of all registered model names."""
     return sorted(_REGISTRY.keys())
 
 
@@ -54,15 +81,34 @@ def list_models():
 
 class CVModel(abc.ABC):
     """
-    Interface every model plugin must implement.
+    Plugin interface — one subclass per model file.
 
-    Lifecycle
-    ---------
-    1. cli_args(parser)  — add model-specific argparse flags
-    2. __init__(args)    — construct from parsed namespace
-    3. fit(X_train, y_train)
-    4. predict(X_test)   -> np.ndarray
-    5. extra_info()      -> dict   (optional; logged to stamp file)
+    Lifecycle (v2)
+    --------------
+    1. ``cli_args(parser)``      — add model-specific argparse flags
+    2. ``build_estimator(args)`` — return an unfitted sklearn Pipeline or
+                                   GridSearchCV for use with cross_validate()
+
+    Plugins do NOT implement fit() / predict() directly.  sklearn's
+    cross_validate() calls those on the returned estimator.
+
+    Example minimal plugin
+    ----------------------
+    .. code-block:: python
+
+        @register("my_model")
+        class MyModel(CVModel):
+
+            @classmethod
+            def cli_args(cls, parser):
+                parser.add_argument("--my_alpha", type=float, default=1.0)
+
+            @classmethod
+            def build_estimator(cls, args):
+                from sklearn.linear_model import Ridge
+                from sklearn.pipeline import make_pipeline
+                from sklearn.preprocessing import StandardScaler
+                return make_pipeline(StandardScaler(), Ridge(alpha=args.my_alpha))
     """
 
     @classmethod
@@ -70,22 +116,27 @@ class CVModel(abc.ABC):
     def cli_args(cls, parser: argparse.ArgumentParser) -> None:
         """Add model-specific CLI arguments to *parser*."""
 
+    @classmethod
     @abc.abstractmethod
-    def __init__(self, args: argparse.Namespace) -> None:
-        """Construct the model from the parsed CLI namespace."""
-
-    @abc.abstractmethod
-    def fit(self, X_train: np.ndarray, y_train: np.ndarray) -> None:
-        """Fit the model on training data (already preprocessed)."""
-
-    @abc.abstractmethod
-    def predict(self, X_test: np.ndarray) -> np.ndarray:
-        """Return predictions for test data (already preprocessed)."""
-
-    def extra_info(self) -> dict:
+    def build_estimator(cls, args: argparse.Namespace) -> BaseEstimator:
         """
-        Return a dict of key/value pairs to include in the stamp file.
-        Override in subclasses to expose model-specific diagnostics
-        (e.g. OOB R², number of support vectors, etc.).
+        Construct and return an **unfitted** sklearn estimator.
+
+        The estimator must implement the sklearn fit/predict API.  It will
+        be passed directly to ``cross_validate()``, which calls ``.fit()``
+        on each outer training fold.
+
+        Returns
+        -------
+        Pipeline
+            For models with a fixed hyperparameter or a built-in CV variant
+            (e.g. ``RidgeCV``, ``LassoCV``).  The Pipeline must start with
+            ``StandardScaler`` (and optionally ``PCA``) to ensure that
+            preprocessing is fitted only on the training fold.
+
+        GridSearchCV(Pipeline(...))
+            For models whose hyperparameter is tuned via explicit nested CV.
+            The ``param_grid`` keys must use sklearn's ``stepname__param``
+            double-underscore convention to reach estimator params inside
+            the Pipeline.
         """
-        return {}

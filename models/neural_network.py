@@ -1,26 +1,59 @@
 """
-models/neural_network.py — Multi-Layer Perceptron Regressor (sklearn).
+models/neural_network.py — Multi-Layer Perceptron Regressor.
 
 Registered as "neural_network".
-Usage: --model_file neural_network  [--nn_hidden_layers "256,128"] [--nn_lr LR] ...
+Usage: --model_file neural_network  [--nn_hidden_layers "256,128"]
+                                    [--nn_activation relu]
+                                    [--nn_lr LR]
+                                    [--nn_max_iter N]
+                                    [--nn_alpha A]
+                                    [--pca]  [--n_components N]
 
-For GPU-backed deep networks, swap the sklearn MLP for a PyTorch model here
-while keeping the same CVModel interface.
+Design
+------
+Returns a Pipeline(StandardScaler → [PCA →] MLPRegressor) with fixed
+hyperparameters.  No inner GridSearchCV is used by default because MLP is
+expensive to train and has a large hyperparameter space; a fixed architecture
+is often sufficient for neuroimaging regression.
+
+To add hyperparameter search, follow the pattern in ridge_nested.py:
+wrap the pipeline in a GridSearchCV and use ``mlpregressor__hidden_layer_sizes``
+etc. in the param_grid.
+
+Pipeline layout:
+    StandardScaler  →  [PCA →]  MLPRegressor
+
+MLPRegressor is configured with:
+  - adam solver (adaptive learning rate)
+  - early stopping (monitors 10% validation split)
+  - n_iter_no_change=20 for patience
 """
 
-
 import argparse
-from typing import Tuple, Optional
+from typing import Tuple
 
-import numpy as np
 from sklearn.decomposition import PCA
 from sklearn.neural_network import MLPRegressor
+from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
 from models.base import CVModel, register
 
 
 def _parse_layers(s: str) -> Tuple[int, ...]:
+    """
+    Parse a comma-separated string of ints into a tuple of layer sizes.
+
+    Parameters
+    ----------
+    s : str
+        E.g. ``"256,128"`` → ``(256, 128)``
+
+    Raises
+    ------
+    argparse.ArgumentTypeError
+        If any token is not a positive integer.
+    """
     try:
         return tuple(int(x.strip()) for x in s.split(","))
     except ValueError:
@@ -36,95 +69,101 @@ class NeuralNetworkModel(CVModel):
     def cli_args(cls, parser: argparse.ArgumentParser) -> None:
         g = parser.add_argument_group("neural_network options")
         g.add_argument(
-            "--nn_hidden_layers", type=str, default="256,128",
-            help="Comma-separated hidden layer sizes (default: '256,128')"
+            "--nn_hidden_layers",
+            type=str,
+            default="256,128",
+            help=(
+                "Comma-separated hidden layer sizes, e.g. '256,128' for two layers. "
+                "(default: '256,128')"
+            ),
         )
         g.add_argument(
-            "--nn_activation", type=str, default="relu",
+            "--nn_activation",
+            type=str,
+            default="relu",
             choices=["relu", "tanh", "logistic"],
-            help="Activation function (default: relu)"
+            help="Activation function for hidden layers (default: relu).",
         )
         g.add_argument(
-            "--nn_lr", type=float, default=1e-3,
-            help="Initial learning rate (default: 0.001)"
+            "--nn_lr",
+            type=float,
+            default=1e-3,
+            help="Initial learning rate for the adam solver (default: 0.001).",
         )
         g.add_argument(
-            "--nn_max_iter", type=int, default=500,
-            help="Max training epochs (default: 500)"
-        )
-        g.add_argument(
-            "--nn_alpha", type=float, default=1e-4,
-            help="L2 regularisation term (default: 1e-4)"
-        )
-        g.add_argument(
-            "--n_components", type=int, default=500,
-            help="PCA components before MLP (default: 500)"
-        )
-        g.add_argument("--pca", action="store_true", default=False,
-                       help="Apply PCA preprocessing (default: off)")
-
-    def __init__(self, args: argparse.Namespace) -> None:
-        self._hidden_layers = _parse_layers(args.nn_hidden_layers)
-        self._activation = args.nn_activation
-        self._lr = args.nn_lr
-        self._max_iter = args.nn_max_iter
-        self._alpha = args.nn_alpha
-        self._n_components = args.n_components
-        self._use_pca = args.pca
-        self._scaler: Optional[StandardScaler] = None
-        self._pca: Optional[PCA] = None
-        self._model: Optional[MLPRegressor] = None
-
-    def _preprocess_train(self, X: np.ndarray) -> np.ndarray:
-        self._scaler = StandardScaler()
-        X_sc = self._scaler.fit_transform(X)
-        if self._use_pca:
-            n_comp = min(self._n_components, X.shape[0], X.shape[1])
-            print(f"[NN] PCA n_components={n_comp}")
-            self._pca = PCA(n_components=n_comp, svd_solver="randomized", random_state=42)
-            return self._pca.fit_transform(X_sc)
-        return X_sc
-
-    def _preprocess_test(self, X: np.ndarray) -> np.ndarray:
-        X_sc = self._scaler.transform(X)
-        return self._pca.transform(X_sc) if self._use_pca else X_sc
-
-    def fit(self, X_train: np.ndarray, y_train: np.ndarray) -> None:
-        X_pp = self._preprocess_train(X_train)
-        print(
-            f"[NN] Fitting MLP hidden_layers={self._hidden_layers} "
-            f"activation={self._activation} lr={self._lr} max_iter={self._max_iter}"
-        )
-        self._model = MLPRegressor(
-            hidden_layer_sizes=self._hidden_layers,
-            activation=self._activation,
-            learning_rate_init=self._lr,
-            max_iter=self._max_iter,
-            alpha=self._alpha,
-            solver="adam",
-            random_state=42,
-            early_stopping=True,
-            n_iter_no_change=20,
-            verbose=False,
-        )
-        self._model.fit(X_pp, y_train)
-        print(f"[NN] Training completed after {self._model.n_iter_} epochs")
-        print(f"[NN] Best validation loss: {self._model.best_loss_:.6f}")
-
-    def predict(self, X_test: np.ndarray) -> np.ndarray:
-        assert self._model is not None
-        return self._model.predict(self._preprocess_test(X_test))
-
-    def extra_info(self) -> dict:
-        return {
-            "nn_hidden_layers": str(self._hidden_layers),
-            "nn_activation": self._activation,
-            "nn_lr": self._lr,
-            "nn_epochs_trained": (
-                self._model.n_iter_ if self._model is not None else None
+            "--nn_max_iter",
+            type=int,
+            default=500,
+            help=(
+                "Maximum training epochs.  Early stopping may terminate sooner. "
+                "(default: 500)"
             ),
-            "nn_best_val_loss": (
-                self._model.best_loss_ if self._model is not None else None
+        )
+        g.add_argument(
+            "--nn_alpha",
+            type=float,
+            default=1e-4,
+            help="L2 regularisation coefficient (default: 1e-4).",
+        )
+        g.add_argument(
+            "--pca",
+            action="store_true",
+            default=False,
+            help=(
+                "Prepend PCA before the MLP.  Recommended for very high-dimensional "
+                "FC matrices to reduce input dimensionality.  (default: off)"
             ),
-            "use_pca": self._use_pca,
-        }
+        )
+        g.add_argument(
+            "--n_components",
+            type=int,
+            default=500,
+            help="PCA components (only used when --pca is set; default: 500).",
+        )
+
+    @classmethod
+    def build_estimator(cls, args: argparse.Namespace):
+        """
+        Return an unfitted Pipeline:  StandardScaler → [PCA →] MLPRegressor.
+
+        Parameters
+        ----------
+        args.nn_hidden_layers : str   — e.g. '256,128'
+        args.nn_activation    : str   — 'relu', 'tanh', or 'logistic'
+        args.nn_lr            : float — initial learning rate
+        args.nn_max_iter      : int   — max epochs
+        args.nn_alpha         : float — L2 regularisation
+        args.pca              : bool
+        args.n_components     : int
+
+        Returns
+        -------
+        sklearn.pipeline.Pipeline
+        """
+        hidden = _parse_layers(args.nn_hidden_layers)
+
+        steps = [StandardScaler()]
+        if args.pca:
+            steps.append(
+                PCA(
+                    n_components=args.n_components,
+                    svd_solver="randomized",
+                    random_state=42,
+                )
+            )
+        steps.append(
+            MLPRegressor(
+                hidden_layer_sizes=hidden,
+                activation=args.nn_activation,
+                solver="adam",
+                learning_rate_init=args.nn_lr,
+                max_iter=args.nn_max_iter,
+                alpha=args.nn_alpha,
+                random_state=42,
+                early_stopping=True,
+                validation_fraction=0.1,
+                n_iter_no_change=20,
+                verbose=False,
+            )
+        )
+        return make_pipeline(*steps)
