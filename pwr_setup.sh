@@ -13,7 +13,7 @@ set -euo pipefail
 # ── Arguments ─────────────────────────────────────────────────────────────────
 WRKDIR=$1     # Root working directory
 FILEDIR=$2    # Pipeline scripts directory
-CONDAENV=${3:-}  # Conda environment name (optional; avoids unbound variable under set -u)
+CONDAENV=${3:-}   # Conda environment name (optional; safe default avoids set -u error)
 
 # ── Environment ───────────────────────────────────────────────────────────────
 module purge || true

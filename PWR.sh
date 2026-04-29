@@ -24,7 +24,6 @@ Required:
   --pconnref     PCONNREF      Pconn reference
   --singletemp   0|1           Single-temperature mode (0=multi, 1=single)
   --numtemp      INT           Number of temperatures (>= 1)
-  --kfolds       INT           Number of CV folds
   --epsilon      FLOAT         Epsilon value (>= 0)
   --condaenv     ENV_NAME      Conda environment to use
 
@@ -35,32 +34,40 @@ Optional with defaults:
   --nrep         INT           Number of repetitions (default: 10)
   --ntime        INT           Number of timepoints (default: 1000)
 
-Optional model selection:
-  --model        MODEL_FILE    Model to use (default: random_forest)
-                               Options: random_forest, ridge, lasso,
-                                        elastic_net, svr, neural_net, gradient_boosting
-  --n-components INT           PCA components (default: 500)
-  --n-estimators INT           RF estimators (default: 500)
-  --pca                        Enable PCA preprocessing (default: off)
+Optional CV topology (sklearn RepeatedKFold):
+  --k-outer      INT           Outer CV folds (default: 10)
+  --n-outer      INT           Outer CV repeats (default: 2; total = k*n)
+  --random-state INT           RNG seed for fold generation (default: 123456)
+  --n-jobs       INT           Parallel jobs for cross_validate (default: 1)
 
-Optional model hyperparameters:
-  --ridge-alpha   FLOAT        Ridge alpha (default: 1.0)
-  --lasso-alpha   FLOAT        Lasso alpha (default: 0.01)
-  --en-alpha      FLOAT        ElasticNet alpha (default: 0.01)
-  --en-l1-ratio   FLOAT        ElasticNet L1 ratio (default: 0.5)
-  --svr-c         FLOAT        SVR C parameter (default: 1.0)
+Optional model selection:
+  --model        MODEL_FILE    Model to use (default: ridge)
+                               Options: ridge, ridge_nested, lasso, elastic_net,
+                                        svr, neural_network, random_forest,
+                                        gradient_boosting
+  --pca                        Enable PCA preprocessing (default: off)
+  --n-components INT           PCA components (default: 500)
+
+Optional model hyperparameters (passed through; ignored if not relevant):
+  --ridge-alphas  STR          Comma-sep alpha candidates (default: '1,10,...,1e5')
+  --lasso-n-alphas INT         LassoCV alpha grid size (default: 100)
+  --en-l1-ratios  STR          Comma-sep l1_ratio candidates (default: '0.1,...,1.0')
+  --svr-c-vals    STR          Comma-sep SVR C candidates (default: '0.1,1,10,100')
   --nn-hidden     LAYERS       NN hidden layers e.g. 256,128 (default: 256,128)
   --nn-lr         FLOAT        NN learning rate (default: 0.001)
   --gb-estimators INT          GB n_estimators (default: 300)
   --gb-lr         FLOAT        GB learning rate (default: 0.05)
+  --rf-tune                    Enable nested GridSearchCV for RF (default: off)
+  --gb-tune                    Enable nested GridSearchCV for GB (default: off)
 
   -h, --help                   Show this help message
 
 Example:
   sbatch PWR.sh --wrkdir /path/to/work --pconndir /path/to/pconn \\
                 --pconnref myref --singletemp 0 --numtemp 5 \\
-                --filedir /path/to/scripts --kfolds 5 --nrep 10 \\
-                --ntime 500 --epsilon 0.1 --model ridge --ridge-alpha 0.5
+                --filedir /path/to/scripts --nrep 10 \\
+                --ntime 500 --epsilon 0.1 --model ridge \\
+                --k-outer 10 --n-outer 2 --ridge-alphas '1,10,100,1000'
 EOF
   exit 1
 }
@@ -75,26 +82,49 @@ PCONNREF=""
 SINGLETEMP=""
 NUMTEMP=""
 FILEDIR="$(pwd)"
-KFOLDS=""
 NREP=10
 NTIME=1000
 EPSILON=""
 CONDAENV=""
 
-# These arguments represent hyperparameters for machine learning methods for the cross validation module.
-MODEL_FILE="${MODEL_FILE:-random_forest}"
+# ── CV topology (sklearn RepeatedKFold) ───────────────────────────────────────
+K_OUTER="${K_OUTER:-10}"
+N_OUTER="${N_OUTER:-2}"
+RANDOM_STATE="${RANDOM_STATE:-123456}"
+N_JOBS="${N_JOBS:-1}"
+
+# ── Model selection ───────────────────────────────────────────────────────────
+MODEL_FILE="${MODEL_FILE:-ridge}"
 USE_PCA="${USE_PCA:-false}"
 N_COMPONENTS="${N_COMPONENTS:-500}"
-N_ESTIMATORS="${N_ESTIMATORS:-500}"
-RIDGE_ALPHA="${RIDGE_ALPHA:-1.0}"
-LASSO_ALPHA="${LASSO_ALPHA:-0.01}"
-EN_ALPHA="${EN_ALPHA:-0.01}"
-EN_L1_RATIO="${EN_L1_RATIO:-0.5}"
-SVR_C="${SVR_C:-1.0}"
+
+# ── Model hyperparameters ─────────────────────────────────────────────────────
+RIDGE_ALPHAS="${RIDGE_ALPHAS:-1,10,100,1000,10000,100000}"
+RIDGE_CV_FOLDS="${RIDGE_CV_FOLDS:-5}"
+RIDGE_K_INNER="${RIDGE_K_INNER:-5}"
+LASSO_N_ALPHAS="${LASSO_N_ALPHAS:-100}"
+LASSO_CV_FOLDS="${LASSO_CV_FOLDS:-5}"
+LASSO_MAX_ITER="${LASSO_MAX_ITER:-5000}"
+EN_L1_RATIOS="${EN_L1_RATIOS:-0.1,0.5,0.7,0.9,0.95,1.0}"
+EN_N_ALPHAS="${EN_N_ALPHAS:-100}"
+EN_CV_FOLDS="${EN_CV_FOLDS:-5}"
+RF_N_ESTIMATORS="${RF_N_ESTIMATORS:-500}"
+RF_MAX_FEATURES="${RF_MAX_FEATURES:-1.0}"
+RF_TUNE="${RF_TUNE:-false}"
+RF_K_INNER="${RF_K_INNER:-3}"
+SVR_C_VALS="${SVR_C_VALS:-0.1,1,10,100}"
+SVR_KERNEL="${SVR_KERNEL:-rbf}"
+SVR_EPSILON="${SVR_EPSILON:-0.1}"
+SVR_K_INNER="${SVR_K_INNER:-5}"
 NN_HIDDEN_LAYERS="${NN_HIDDEN_LAYERS:-256,128}"
 NN_LR="${NN_LR:-0.001}"
+NN_MAX_ITER="${NN_MAX_ITER:-500}"
+NN_ALPHA="${NN_ALPHA:-0.0001}"
 GB_N_ESTIMATORS="${GB_N_ESTIMATORS:-300}"
 GB_LR="${GB_LR:-0.05}"
+GB_MAX_DEPTH="${GB_MAX_DEPTH:-4}"
+GB_TUNE="${GB_TUNE:-false}"
+GB_K_INNER="${GB_K_INNER:-3}"
 
 # ---------------------------------------------------------------------------
 # Parse named arguments
@@ -112,24 +142,46 @@ while [[ $# -gt 0 ]]; do
     --singletemp)   SINGLETEMP="$2";       shift 2 ;;
     --numtemp)      NUMTEMP="$2";          shift 2 ;;
     --filedir)      FILEDIR="$2";          shift 2 ;;
-    --kfolds)       KFOLDS="$2";           shift 2 ;;
-    --nrep)         NREP="$2";             shift 2 ;;
-    --ntime)        NTIME="$2";            shift 2 ;;
-    --epsilon)      EPSILON="$2";          shift 2 ;;
-    --condaenv)     CONDAENV="$2";         shift 2 ;;
-    --model)        MODEL_FILE="$2";       shift 2 ;;
-    --pca)          USE_PCA="true";        shift 1 ;;
-    --n-components) N_COMPONENTS="$2";     shift 2 ;;
-    --n-estimators) N_ESTIMATORS="$2";     shift 2 ;;
-    --ridge-alpha)  RIDGE_ALPHA="$2";      shift 2 ;;
-    --lasso-alpha)  LASSO_ALPHA="$2";      shift 2 ;;
-    --en-alpha)     EN_ALPHA="$2";         shift 2 ;;
-    --en-l1-ratio)  EN_L1_RATIO="$2";      shift 2 ;;
-    --svr-c)        SVR_C="$2";            shift 2 ;;
-    --nn-hidden)    NN_HIDDEN_LAYERS="$2"; shift 2 ;;
-    --nn-lr)        NN_LR="$2";            shift 2 ;;
-    --gb-estimators) GB_N_ESTIMATORS="$2"; shift 2 ;;
-    --gb-lr)        GB_LR="$2";            shift 2 ;;
+    --nrep)           NREP="$2";             shift 2 ;;
+    --ntime)          NTIME="$2";            shift 2 ;;
+    --epsilon)        EPSILON="$2";          shift 2 ;;
+    --condaenv)       CONDAENV="$2";         shift 2 ;;
+    # CV topology
+    --k-outer)        K_OUTER="$2";          shift 2 ;;
+    --n-outer)        N_OUTER="$2";          shift 2 ;;
+    --random-state)   RANDOM_STATE="$2";     shift 2 ;;
+    --n-jobs)         N_JOBS="$2";           shift 2 ;;
+    # Model
+    --model)          MODEL_FILE="$2";       shift 2 ;;
+    --pca)            USE_PCA="true";        shift 1 ;;
+    --n-components)   N_COMPONENTS="$2";     shift 2 ;;
+    # Hyperparameters
+    --ridge-alphas)   RIDGE_ALPHAS="$2";     shift 2 ;;
+    --ridge-cv-folds) RIDGE_CV_FOLDS="$2";   shift 2 ;;
+    --ridge-k-inner)  RIDGE_K_INNER="$2";    shift 2 ;;
+    --lasso-n-alphas) LASSO_N_ALPHAS="$2";   shift 2 ;;
+    --lasso-cv-folds) LASSO_CV_FOLDS="$2";   shift 2 ;;
+    --lasso-max-iter) LASSO_MAX_ITER="$2";   shift 2 ;;
+    --en-l1-ratios)   EN_L1_RATIOS="$2";     shift 2 ;;
+    --en-n-alphas)    EN_N_ALPHAS="$2";      shift 2 ;;
+    --en-cv-folds)    EN_CV_FOLDS="$2";      shift 2 ;;
+    --rf-n-estimators) RF_N_ESTIMATORS="$2"; shift 2 ;;
+    --rf-max-features) RF_MAX_FEATURES="$2"; shift 2 ;;
+    --rf-tune)        RF_TUNE="true";        shift 1 ;;
+    --rf-k-inner)     RF_K_INNER="$2";       shift 2 ;;
+    --svr-c-vals)     SVR_C_VALS="$2";       shift 2 ;;
+    --svr-kernel)     SVR_KERNEL="$2";       shift 2 ;;
+    --svr-epsilon)    SVR_EPSILON="$2";      shift 2 ;;
+    --svr-k-inner)    SVR_K_INNER="$2";      shift 2 ;;
+    --nn-hidden)      NN_HIDDEN_LAYERS="$2"; shift 2 ;;
+    --nn-lr)          NN_LR="$2";            shift 2 ;;
+    --nn-max-iter)    NN_MAX_ITER="$2";      shift 2 ;;
+    --nn-alpha)       NN_ALPHA="$2";         shift 2 ;;
+    --gb-estimators)  GB_N_ESTIMATORS="$2";  shift 2 ;;
+    --gb-lr)          GB_LR="$2";            shift 2 ;;
+    --gb-max-depth)   GB_MAX_DEPTH="$2";     shift 2 ;;
+    --gb-tune)        GB_TUNE="true";        shift 1 ;;
+    --gb-k-inner)     GB_K_INNER="$2";       shift 2 ;;
     -h|--help)      usage ;;
     *)
       echo "[FATAL] Unknown argument: $1" >&2
@@ -146,7 +198,6 @@ missing=()
 [[ -z "$PCONNREF"   ]] && missing+=(--pconnref)
 [[ -z "$SINGLETEMP" ]] && missing+=(--singletemp)
 [[ -z "$NUMTEMP"    ]] && missing+=(--numtemp)
-[[ -z "$KFOLDS"     ]] && missing+=(--kfolds)
 [[ -z "$EPSILON"    ]] && missing+=(--epsilon)
 #not adding condaenv check here as we have a specific error message for it below
 
@@ -202,7 +253,6 @@ echo "[INFO] PCONNREF=$PCONNREF"
 echo "[INFO] SINGLETEMP=$SINGLETEMP"
 echo "[INFO] NUMTEMP=$NUMTEMP"
 echo "[INFO] FILEDIR=$FILEDIR"
-echo "[INFO] KFOLDS=$KFOLDS"
 echo "[INFO] NREP=$NREP"
 echo "[INFO] NTIME=$NTIME"
 echo "[INFO] EPSILON=$EPSILON"
@@ -338,7 +388,7 @@ submit() {
 # index space (one row per sample-size/dataset-size combination). All
 # subsequent array jobs depend on this file existing and being non-empty.
 submit "pwr_setup" "1:00:00" "16GB" "2" -- --wait \
-  "$FILEDIR/pwr_setup.sh" "$WRKDIR" "$FILEDIR"
+  "$FILEDIR/pwr_setup.sh" "$WRKDIR" "$FILEDIR" "$CONDAENV"
 
 # Guard: confirm pwr_index_file.txt was actually produced and is non-empty.
 # -s tests that the file exists AND has size > 0. If it's missing or empty,
@@ -452,110 +502,36 @@ if [ "$NUMFILES" -le 0 ]; then
   exit 1
 fi
 
-# ---------------------------------------------------------------------------
-# Step 5 — CV generation
-# ---------------------------------------------------------------------------
-# Generates train/test fold indices for each sample size in parallel.
-# One array task is launched per sample size (1..NUMFILES), where each
-# task creates the CV split files needed by Step 6 (cv.py).
-#
-# Each task receives its target sample size implicitly via
-# SLURM_ARRAY_TASK_ID, which cvGen.sh maps to the corresponding
-# full_<size>_cov.npy produced in Step 3.
-#
-# KFOLDS controls how many folds are generated per sample size.
-# Output files are expected to follow the pattern:
-#   $PWRDATA/cv_<size>_fold<k>.npz   (train/test index arrays)
-#
-# Runs synchronously (--wait) so Step 6 only begins once fold
-# indices exist for all sample sizes.
-#
-# Note: labeled Step 5 rather than Step 4 because ridge model
-# generation (Step 4) runs between combine_data and CV generation.
-submit "cvGen" "1:00:00" "16GB" "2" -- --array=1-"$NUMFILES" --wait \
-  "$FILEDIR/cvGen.sh" "$WRKDIR" "$FILEDIR" "$NUMFILES" "$KFOLDS" "$CONDAENV"
 
 # ---------------------------------------------------------------------------
-# Step 6 — Setup CV metrics
+# Step 5 — Cross-validation (sklearn cross_validate; one task per sample size)
 # ---------------------------------------------------------------------------
-# Prepares the per-fold split files (.npz) that downstream CV steps consume.
-# Specifically, setupCVmetrics.sh converts the fold indices generated in
-# Step 5 into full_<size>_fold_<k>_split.npz files, each containing the
-# train and test index arrays for one sample-size/fold combination.
+# Fits and evaluates the chosen predictive model across all outer CV folds
+# for each sample size in parallel.  One array task per sample size
+# (1..NUMFILES); all folds run inside a single cv.py call via sklearn's
+# cross_validate(RepeatedKFold(K_OUTER, N_OUTER)).
 #
-# Runs as a single (non-array) job synchronously (--wait) before the
-# guard below executes. The total number of expected .npz files is:
-#   NUMFILES (sample sizes) × KFOLDS (folds per size)
-submit "setupCVmetrics" "1:00:00" "16GB" "2" -- --wait \
-  "$FILEDIR/setupCVmetrics.sh" "$WRKDIR" "$FILEDIR" "$CONDAENV"
-
-# ── Guard: verify split files were produced for all size/fold combinations ────
-# Counts all full_*_fold_*_split.npz files written by setupCVmetrics.
-# A count of zero means either no fold indices were found from Step 5
-# (upstream failure) or setupCVmetrics itself crashed before writing output.
+# Replaces the legacy Steps 5+6+7 (cvGen → setupCVmetrics → cv array).
+# No pre-split .npz files are written; splits are generated in-memory from
+# FCs_<size>.npy and y_<size>.npy produced by Step 3 (combine_data).
 #
-# Note: this guard checks only that at least one file exists, not that
-# all NUMFILES × KFOLDS combinations are present. A partial run
-# (some sizes or folds missing) would pass this check — if stricter
-# validation is needed, compare NUMFFILES against NUMFILES * KFOLDS.
-NUMFFILES=$(ls "$PWRDATA"/full_*_fold_*_split.npz 2>/dev/null | wc -l | tr -d ' ')
-echo "[INFO] NUMFFILES=$NUMFFILES"
-if [ "$NUMFFILES" -le 0 ]; then
-  echo "[FATAL] NUMFFILES=0 (no full_*_fold_*_split.npz found)" >&2
-  ls -lh "$PWRDATA" | head -n 120   # Dump directory listing to aid diagnosis
-  exit 1
-fi
-
-# ---------------------------------------------------------------------------
-# Step 7 — Cross-validation (model array jobs)
-# ---------------------------------------------------------------------------
-# Fits and evaluates the chosen predictive model on every sample-size/fold
-# combination in parallel. One array task is launched per split file
-# (1..NUMFFILES), where NUMFFILES = NUMFILES × KFOLDS.
+# Outputs per (size, model):
+#   cv_results_size<N>_<model>.csv   — per-fold train+test scores
+#   cv_summary_size<N>_<model>.csv   — mean ± SD across all folds
+#   cv_stamp_size<N>_<model>.txt     — provenance stamp
 #
-# Each task receives its target split via SLURM_ARRAY_TASK_ID, which
-# cv.sh maps to the corresponding full_<size>_fold_<k>_split.npz.
-#
-# Memory is elevated to 32GB (vs 16GB in earlier steps) to accommodate
-# in-memory model fitting across the full training fold for larger
-# sample sizes.
-#
-# Model behaviour is controlled entirely via --export rather than
-# positional script arguments, so cv.sh can forward them as environment
-# variables without needing to know which model is active. Parameters
-# irrelevant to the selected MODEL_FILE are passed but silently ignored
-# by cv.py.
-#
-# --export variables:
-#   MODEL_FILE      - Path to the model definition module (models/*.py)
-#   USE_PCA         - Whether to apply PCA before fitting (0 or 1)
-#   N_COMPONENTS    - Number of PCA components (used if USE_PCA=1)
-#   N_ESTIMATORS    - Trees for RandomForest / GradientBoosting
-#   RIDGE_ALPHA     - Regularisation strength for Ridge regression
-#   LASSO_ALPHA     - Regularisation strength for Lasso regression
-#   EN_ALPHA        - Regularisation strength for ElasticNet
-#   EN_L1_RATIO     - L1/L2 mixing ratio for ElasticNet (0=Ridge, 1=Lasso)
-#   SVR_C           - Regularisation parameter for SVR
-#   NN_HIDDEN_LAYERS - Layer sizes for the neural network (e.g. "64,32")
-#   NN_LR           - Learning rate for the neural network
-#   GB_N_ESTIMATORS - Number of boosting stages for GradientBoosting
-#   GB_LR           - Learning rate (shrinkage) for GradientBoosting
-#
-# The bare "--" after the --export flag closes the sbatch_extra block
-# inside submit(), separating SLURM flags from the script path.
-#
-# Runs synchronously (--wait) so Step 8 only begins once all
-# size/fold model fits are complete.
-submit "cv" "2:00:00" "32GB" "2" -- \
-  --array=1-"$NUMFFILES" --wait \
-  --export=ALL,MODEL_FILE="$MODEL_FILE",USE_PCA="$USE_PCA",N_COMPONENTS="$N_COMPONENTS",N_ESTIMATORS="$N_ESTIMATORS",RIDGE_ALPHA="$RIDGE_ALPHA",LASSO_ALPHA="$LASSO_ALPHA",EN_ALPHA="$EN_ALPHA",EN_L1_RATIO="$EN_L1_RATIO",SVR_C="$SVR_C",NN_HIDDEN_LAYERS="$NN_HIDDEN_LAYERS",NN_LR="$NN_LR",GB_N_ESTIMATORS="$GB_N_ESTIMATORS",GB_LR="$GB_LR" \
+# Runs synchronously (--wait) so Step 6 (final_data) begins only after
+# all sample-size CV jobs are complete.
+submit "cv" "24:00:00" "128GB" "20" -- \
+  --array=1-"$NUMFILES" --wait \
+  --export=ALL,MODEL_FILE="$MODEL_FILE",USE_PCA="$USE_PCA",N_COMPONENTS="$N_COMPONENTS",K_OUTER="$K_OUTER",N_OUTER="$N_OUTER",RANDOM_STATE="$RANDOM_STATE",N_JOBS="$N_JOBS",RIDGE_ALPHAS="$RIDGE_ALPHAS",RIDGE_CV_FOLDS="$RIDGE_CV_FOLDS",RIDGE_K_INNER="$RIDGE_K_INNER",LASSO_N_ALPHAS="$LASSO_N_ALPHAS",LASSO_CV_FOLDS="$LASSO_CV_FOLDS",LASSO_MAX_ITER="$LASSO_MAX_ITER",EN_L1_RATIOS="$EN_L1_RATIOS",EN_N_ALPHAS="$EN_N_ALPHAS",EN_CV_FOLDS="$EN_CV_FOLDS",RF_N_ESTIMATORS="$RF_N_ESTIMATORS",RF_MAX_FEATURES="$RF_MAX_FEATURES",RF_TUNE="$RF_TUNE",RF_K_INNER="$RF_K_INNER",SVR_C_VALS="$SVR_C_VALS",SVR_KERNEL="$SVR_KERNEL",SVR_EPSILON="$SVR_EPSILON",SVR_K_INNER="$SVR_K_INNER",NN_HIDDEN_LAYERS="$NN_HIDDEN_LAYERS",NN_LR="$NN_LR",NN_MAX_ITER="$NN_MAX_ITER",NN_ALPHA="$NN_ALPHA",GB_N_ESTIMATORS="$GB_N_ESTIMATORS",GB_LR="$GB_LR",GB_MAX_DEPTH="$GB_MAX_DEPTH",GB_TUNE="$GB_TUNE",GB_K_INNER="$GB_K_INNER" \
   -- \
-  "$FILEDIR/cv.sh" "$WRKDIR" "$FILEDIR" "$NUMFILES" "$KFOLDS" "$EPSILON" "$CONDAENV"
+  "$FILEDIR/cv.sh" "$WRKDIR" "$FILEDIR" "$NUMFILES" "$CONDAENV"
 
 # ---------------------------------------------------------------------------
 # Step 8 — Final data
 # ---------------------------------------------------------------------------
-# Collects all per-fold CV results produced in Step 7 and aggregates them
+# Collects all per-fold CV results produced in Step 5 and aggregates them
 # into the final power curve outputs (e.g. mean/SD of prediction accuracy
 # across folds, per sample size). This is the terminal compute step of the
 # pipeline — its outputs are what the power calculator actually reports.
@@ -564,7 +540,7 @@ submit "cv" "2:00:00" "32GB" "2" -- \
 #   - 12h walltime: aggregation across all sample sizes and folds can be
 #     slow if results are large or post-processing is extensive.
 #   - 96GB memory:  all per-fold result arrays are loaded simultaneously
-#     before reduction, which scales with NUMFILES × KFOLDS × result size.
+#     before reduction, which scales with NUMFILES × (K_OUTER × N_OUTER) × result size.
 #   - 8 CPUs:       final_data.py can parallelise aggregation across sample
 #     sizes using multiprocessing.
 #
