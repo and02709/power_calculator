@@ -1,120 +1,195 @@
 #!/bin/bash -l
-# cv.sh — SLURM array task script for Step 7 of the power calculator pipeline.
+# cv.sh — SLURM array task script for Step 6 of the power calculator pipeline.
+#          (sklearn CV edition — replaces the legacy Step 5 cvGen + Step 7 cv split)
 #
-# Fits and evaluates a predictive model on one sample-size/fold combination
-# per array task. Each task calls cv.py, which loads the corresponding
-# full_<size>_fold_<k>_split.npz produced by Step 5 (cvGen.py), fits the
-# selected model on the training set, and evaluates it on the test set.
+# Fits and evaluates a predictive model across all outer CV folds for ONE
+# sample size per array task.  Calls cv.py (v2), which loads the full
+# FCs_<size>.npy and y_<size>.npy directly and delegates all fold generation,
+# preprocessing, fitting, and scoring to sklearn's cross_validate().
 #
-# Array indexing: one task per split file (1..NUMFFILES, where
-# NUMFFILES = NUMFILES × KFOLDS). SLURM_ARRAY_TASK_ID is passed to cv.py
-# as INDEX, which maps it to a specific (size, fold) pair via cv.pkl.
+# Changes from the legacy cv.sh
+# ------------------------------
+# Legacy:  array size = NUMFILES × KFOLDS  (one task per size/fold pair)
+# New:     array size = NUMFILES            (one task per sample size;
+#                                            all folds run inside cv.py)
 #
-# Model selection is controlled entirely via environment variables passed
-# through --export in PWR.sh rather than positional arguments, so this
-# script stays model-agnostic. Hyperparameters irrelevant to the selected
-# model are forwarded but silently ignored by cv.py.
+# The KFOLDS positional argument is replaced by --k_outer and --n_outer flags
+# that map directly to RepeatedKFold in cv.py.  EPSILON is no longer passed
+# to cv.py (it is applied upstream in combine_data.py and is irrelevant here).
 #
-# Resource profile (128GB / 24h / 20 CPUs) is the highest in the pipeline:
-#   - 128GB: in-memory model fitting on the full training fold for the
-#            largest sample sizes, plus PCA if enabled.
-#   - 24h:   neural network and gradient boosting models can be slow at
-#            large sample sizes with many estimators.
-#   - 20 CPUs: passed to sklearn models that support n_jobs=-1 parallelism.
+# Model selection works identically to the legacy version: MODEL_FILE and all
+# hyperparameter env vars are injected via --export in PWR.sh.  Flags
+# irrelevant to the selected model are forwarded to cv.py and silently ignored.
 #
-# Usage (via PWR.sh submit()):
-#   sbatch --array=1-$NUMFFILES \
-#     --export=ALL,MODEL_FILE=...,USE_PCA=...,<hyperparams> \
-#     cv.sh <WRKDIR> <FILEDIR> <NUMFILES> <KFOLDS> <EPSILON>
+# Resource profile notes
+# ----------------------
+# 128GB / 24h / 20 CPUs:
+#   - All outer folds for one size run sequentially (N_JOBS=1) or in parallel
+#     (N_JOBS=-1) within a single task.  With N_JOBS=1, peak memory is one
+#     fold's training set; with N_JOBS=-1, k_outer simultaneous fold fits
+#     may require proportionally more RAM.
+#   - Neural network and gradient boosting models at large sizes can be slow;
+#     24h is retained as a conservative ceiling.
+#   - If using N_JOBS > 1 for the outer loop AND the model uses n_jobs=-1
+#     internally (RF, SVR with GridSearchCV), set N_JOBS=1 here to avoid
+#     CPU over-subscription.
 
 # ── SLURM directives ──────────────────────────────────────────────────────────
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=20        # Available to sklearn models via n_jobs=-1
-#SBATCH --mem=128GB               # Highest in pipeline — large training folds + PCA
-#SBATCH --time=24:00:00           # NN/GB models can be slow at large sample sizes
+#SBATCH --cpus-per-task=20        # Available to sklearn via n_jobs=-1 inside cv.py
+#SBATCH --mem=128GB
+#SBATCH --time=24:00:00
 #SBATCH -p msismall
-#SBATCH --mail-type=FAIL          # Email only on job failure
+#SBATCH --mail-type=FAIL
 #SBATCH --mail-user=and02709@umn.edu
-#SBATCH -o cv_%a.out              # %a = array task ID (one log file per size/fold)
+#SBATCH -o cv_%a.out              # %a = array task ID (one log file per sample size)
 #SBATCH -e cv_%a.err
 #SBATCH --job-name cv
 
 # ── Arguments ─────────────────────────────────────────────────────────────────
 WRKDIR="$1"      # Root working directory
-FILEDIR="$2"     # Pipeline scripts directory
-NUMFILES="$3"    # Number of sample sizes (used by cv.py to resolve INDEX → size)
-KFOLDS="$4"      # Number of CV folds per sample size
-EPSILON="$5"     # Noise scale factor (passed through to cv.py for reference)
-CONDAENV="$6"    # Conda environment name (passed through to cv.py for environment activation)
+FILEDIR="$2"     # Pipeline scripts directory (contains cv.py, models/)
+NUMFILES="$3"    # Number of sample sizes (determines array upper bound)
+CONDAENV="$4"    # Conda environment name
 
-# 1-based array task ID; cv.py maps this to a (size, fold) pair via cv.pkl
+# 1-based array task ID; cv.py maps this to the INDEX-th sample size
 INDEX=${SLURM_ARRAY_TASK_ID}
 
+# ── CV topology ───────────────────────────────────────────────────────────────
+# These mirror the RepeatedKFold parameters inside cv.py.
+K_OUTER=${K_OUTER:-10}       # k in RepeatedKFold — folds per repeat
+N_OUTER=${N_OUTER:-2}        # n repeats of k-fold CV
+RANDOM_STATE=${RANDOM_STATE:-123456}
+
+# ── Runtime ───────────────────────────────────────────────────────────────────
+# N_JOBS controls cross_validate()'s outer loop parallelism.
+# Keep at 1 if the plugin's inner GridSearchCV already uses n_jobs=-1
+# (e.g. ridge_nested, svr) to avoid CPU over-subscription.
+N_JOBS=${N_JOBS:-1}
+SAVE_ESTIMATORS=${SAVE_ESTIMATORS:-false}
+
 # ── Model selection ───────────────────────────────────────────────────────────
-# MODEL_FILE selects the model module from FILEDIR/models/<MODEL_FILE>.py.
-# Injected via --export in PWR.sh; defaults to random_forest if not set,
-# preserving the original pipeline behaviour before multi-model support was added.
-MODEL_FILE=${MODEL_FILE:-random_forest}
+MODEL_FILE=${MODEL_FILE:-ridge}
 
-# USE_PCA controls whether PCA dimensionality reduction is applied to the
-# feature matrix before model fitting. Converted to a flag (--pca) below
-# rather than passed as a string argument so cv.py uses action="store_true".
+# ── Common flags ──────────────────────────────────────────────────────────────
 USE_PCA=${USE_PCA:-false}
+N_COMPONENTS=${N_COMPONENTS:-500}
 
-# ── Hyperparameter defaults ───────────────────────────────────────────────────
-# All hyperparameters default here so cv.sh is self-contained and runnable
-# without --export. Values injected via PWR.sh --export override these defaults.
-# Parameters irrelevant to the selected MODEL_FILE are forwarded to cv.py
-# but silently ignored there — no conditional logic is needed in this script.
-N_COMPONENTS=${N_COMPONENTS:-500}        # PCA: number of components (if USE_PCA=true)
-N_ESTIMATORS=${N_ESTIMATORS:-500}        # random_forest: number of trees
-RIDGE_ALPHA=${RIDGE_ALPHA:-1.0}          # ridge: regularisation strength
-LASSO_ALPHA=${LASSO_ALPHA:-0.01}         # lasso: regularisation strength
-EN_ALPHA=${EN_ALPHA:-0.01}               # elastic_net: regularisation strength
-EN_L1_RATIO=${EN_L1_RATIO:-0.5}         # elastic_net: L1/L2 mixing (0=Ridge, 1=Lasso)
-SVR_C=${SVR_C:-1.0}                      # svr: regularisation parameter
-NN_HIDDEN_LAYERS=${NN_HIDDEN_LAYERS:-256,128}  # neural_network: layer sizes (comma-separated)
-NN_LR=${NN_LR:-0.001}                   # neural_network: learning rate
-GB_N_ESTIMATORS=${GB_N_ESTIMATORS:-300} # gradient_boosting: number of boosting stages
-GB_LR=${GB_LR:-0.05}                    # gradient_boosting: learning rate (shrinkage)
-
-# ── PCA flag construction ─────────────────────────────────────────────────────
-# cv.py uses --pca as a store_true flag rather than --pca true/false, so
-# the flag must be either present or absent in the python3 call. An empty
-# PCA_FLAG is safe to include in the argument list — the shell expands it
-# to nothing rather than passing a blank string argument.
 PCA_FLAG=""
 if [[ "$USE_PCA" == "true" ]]; then
   PCA_FLAG="--pca"
 fi
 
+SAVE_EST_FLAG=""
+if [[ "$SAVE_ESTIMATORS" == "true" ]]; then
+  SAVE_EST_FLAG="--save_estimators"
+fi
+
+# ── Model-specific hyperparameter defaults ────────────────────────────────────
+# All values default here so cv.sh is self-contained.  Values injected via
+# --export in PWR.sh override these defaults.  Flags irrelevant to the selected
+# model are forwarded and silently ignored by cv.py / the plugin parser.
+
+# ridge / ridge_nested
+RIDGE_ALPHAS=${RIDGE_ALPHAS:-"1,10,100,1000,10000,100000"}
+RIDGE_CV_FOLDS=${RIDGE_CV_FOLDS:-5}      # for RidgeCV inner selection
+RIDGE_K_INNER=${RIDGE_K_INNER:-5}        # for GridSearchCV inner folds (ridge_nested)
+
+# lasso
+LASSO_N_ALPHAS=${LASSO_N_ALPHAS:-100}
+LASSO_CV_FOLDS=${LASSO_CV_FOLDS:-5}
+LASSO_MAX_ITER=${LASSO_MAX_ITER:-5000}
+
+# elastic_net
+EN_L1_RATIOS=${EN_L1_RATIOS:-"0.1,0.5,0.7,0.9,0.95,1.0"}
+EN_N_ALPHAS=${EN_N_ALPHAS:-100}
+EN_CV_FOLDS=${EN_CV_FOLDS:-5}
+EN_MAX_ITER=${EN_MAX_ITER:-5000}
+
+# random_forest
+RF_N_ESTIMATORS=${RF_N_ESTIMATORS:-500}
+RF_MAX_FEATURES=${RF_MAX_FEATURES:-"1.0"}
+RF_TUNE=${RF_TUNE:-false}
+RF_K_INNER=${RF_K_INNER:-3}
+
+RF_TUNE_FLAG=""
+if [[ "$RF_TUNE" == "true" ]]; then
+  RF_TUNE_FLAG="--rf_tune"
+fi
+
+# svr
+SVR_C_VALS=${SVR_C_VALS:-"0.1,1,10,100"}
+SVR_KERNEL=${SVR_KERNEL:-rbf}
+SVR_EPSILON=${SVR_EPSILON:-0.1}
+SVR_K_INNER=${SVR_K_INNER:-5}
+
+# neural_network
+NN_HIDDEN_LAYERS=${NN_HIDDEN_LAYERS:-"256,128"}
+NN_ACTIVATION=${NN_ACTIVATION:-relu}
+NN_LR=${NN_LR:-0.001}
+NN_MAX_ITER=${NN_MAX_ITER:-500}
+NN_ALPHA=${NN_ALPHA:-0.0001}
+
+# gradient_boosting
+GB_N_ESTIMATORS=${GB_N_ESTIMATORS:-300}
+GB_LR=${GB_LR:-0.05}
+GB_MAX_DEPTH=${GB_MAX_DEPTH:-4}
+GB_SUBSAMPLE=${GB_SUBSAMPLE:-0.8}
+GB_TUNE=${GB_TUNE:-false}
+GB_K_INNER=${GB_K_INNER:-3}
+
+GB_TUNE_FLAG=""
+if [[ "$GB_TUNE" == "true" ]]; then
+  GB_TUNE_FLAG="--gb_tune"
+fi
+
 # ── Environment ───────────────────────────────────────────────────────────────
-# Purge inherited modules before activating conda to avoid version conflicts.
-module purge || true   # || true prevents abort under set -e if no modules loaded
-# Note: the if condition is a workaround for using this on MSI where we have to source the conda environment path
-# without this, activate would would fail. Need to find better solution for production.
+module purge || true
 if [[ "$CONDAENV" == "FC_stability" ]]; then
   source /projects/standard/faird/shared/code/external/envs/miniconda3/load_miniconda3.sh
 fi
 conda activate "$CONDAENV"
 
 # ── Run ───────────────────────────────────────────────────────────────────────
-# NN_HIDDEN_LAYERS is quoted to prevent word-splitting on the comma separator
-# (e.g. "256,128" must arrive as one argument, not two). All other
-# hyperparameters are unquoted scalars and do not require quoting.
-python3 $FILEDIR/cv.py \
-    $WRKDIR $FILEDIR $NUMFILES $KFOLDS $EPSILON $INDEX \
-    --model_file      $MODEL_FILE \
-    --n_components    $N_COMPONENTS \
-    --n_estimators    $N_ESTIMATORS \
-    --ridge_alpha     $RIDGE_ALPHA \
-    --lasso_alpha     $LASSO_ALPHA \
-    --en_alpha        $EN_ALPHA \
-    --en_l1_ratio     $EN_L1_RATIO \
-    --svr_C           $SVR_C \
-    --nn_hidden_layers "$NN_HIDDEN_LAYERS" \   # Quoted: comma in value must not split
-    --nn_lr           $NN_LR \
-    --gb_n_estimators $GB_N_ESTIMATORS \
-    --gb_lr           $GB_LR \
-    $PCA_FLAG                                  # Expands to --pca or nothing
+# Note: NN_HIDDEN_LAYERS and string alpha lists are quoted to prevent
+# word-splitting on comma separators (e.g. "256,128" must arrive as one arg).
+python3 "$FILEDIR/cv.py" \
+    "$WRKDIR" "$FILEDIR" "$NUMFILES" "$INDEX" \
+    --model_file      "$MODEL_FILE"            \
+    --k_outer         "$K_OUTER"               \
+    --n_outer         "$N_OUTER"               \
+    --random_state    "$RANDOM_STATE"          \
+    --n_jobs          "$N_JOBS"                \
+    --n_components    "$N_COMPONENTS"          \
+    --ridge_alphas    "$RIDGE_ALPHAS"          \
+    --ridge_cv_folds  "$RIDGE_CV_FOLDS"        \
+    --ridge_k_inner   "$RIDGE_K_INNER"         \
+    --lasso_n_alphas  "$LASSO_N_ALPHAS"        \
+    --lasso_cv_folds  "$LASSO_CV_FOLDS"        \
+    --lasso_max_iter  "$LASSO_MAX_ITER"        \
+    --en_l1_ratios    "$EN_L1_RATIOS"          \
+    --en_n_alphas     "$EN_N_ALPHAS"           \
+    --en_cv_folds     "$EN_CV_FOLDS"           \
+    --en_max_iter     "$EN_MAX_ITER"           \
+    --rf_n_estimators "$RF_N_ESTIMATORS"       \
+    --rf_max_features "$RF_MAX_FEATURES"       \
+    --rf_k_inner      "$RF_K_INNER"            \
+    --svr_C_vals      "$SVR_C_VALS"            \
+    --svr_kernel      "$SVR_KERNEL"            \
+    --svr_epsilon     "$SVR_EPSILON"           \
+    --svr_k_inner     "$SVR_K_INNER"           \
+    --nn_hidden_layers "$NN_HIDDEN_LAYERS"     \
+    --nn_activation   "$NN_ACTIVATION"         \
+    --nn_lr           "$NN_LR"                 \
+    --nn_max_iter     "$NN_MAX_ITER"           \
+    --nn_alpha        "$NN_ALPHA"              \
+    --gb_n_estimators "$GB_N_ESTIMATORS"       \
+    --gb_lr           "$GB_LR"                 \
+    --gb_max_depth    "$GB_MAX_DEPTH"          \
+    --gb_subsample    "$GB_SUBSAMPLE"          \
+    --gb_k_inner      "$GB_K_INNER"            \
+    $PCA_FLAG                                  \
+    $RF_TUNE_FLAG                              \
+    $GB_TUNE_FLAG                              \
+    $SAVE_EST_FLAG
