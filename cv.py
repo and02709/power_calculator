@@ -10,7 +10,7 @@ longer required; splits are generated in-memory from the full dataset.
 Processing flow
 ---------------
 For the sample size selected by INDEX:
-  1. Load full X = FCs_<size>.npy and y = y_<size>.npy from pwr_data/.
+  1. Load full X = full_<size>_cor.npy and y = full_<size>_y.npy from pwr_data/.
   2. Build the estimator via plugin.build_estimator(args).
      The plugin returns a Pipeline or GridSearchCV — always unfitted.
   3. Build outer_cv = RepeatedKFold(n_splits=k_outer, n_repeats=n_outer).
@@ -124,7 +124,7 @@ _NEG_METRICS = {"RMSE", "MAE"}
 def find_data_sizes(pwr_dir: Path):
     """
     Scan *pwr_dir* and return a sorted list of integer sample sizes for which
-    both ``FCs_<size>.npy`` and ``y_<size>.npy`` are present.
+    both ``full_<size>_cor.npy`` and ``full_<size>_y.npy`` are present.
 
     Only sizes where both files exist are returned; a partial pair (e.g. FCs
     written but y missing) is excluded to prevent loading errors downstream.
@@ -139,8 +139,8 @@ def find_data_sizes(pwr_dir: Path):
     list of int
         Sorted list of valid sample sizes.  Empty if none found.
     """
-    fc_pat = re.compile(r"^FCs_(\d+)\.npy$")
-    y_pat  = re.compile(r"^y_(\d+)\.npy$")
+    fc_pat = re.compile(r"^full_(\d+)_cor\.npy$")
+    y_pat  = re.compile(r"^full_(\d+)_y\.npy$")
     fc_sizes: set = set()
     y_sizes:  set = set()
 
@@ -403,7 +403,7 @@ def main() -> int:
     print(f"[INFO] Found sizes: {sizes}")
 
     if not sizes:
-        print("[FATAL] No FCs_<size>.npy / y_<size>.npy pairs found in pwr_dir.",
+        print("[FATAL] No full_<size>_cor.npy / full_<size>_y.npy pairs found in pwr_dir.",
               file=sys.stderr)
         return 1
 
@@ -421,8 +421,8 @@ def main() -> int:
         return 0
 
     # ── Load data ─────────────────────────────────────────────────────────────
-    fc_path = pwr_dir / f"FCs_{size}.npy"
-    y_path  = pwr_dir / f"y_{size}.npy"
+    fc_path = pwr_dir / f"full_{size}_cor.npy"
+    y_path  = pwr_dir / f"full_{size}_y.npy"
 
     print(f"[INFO] Loading {fc_path.name} ...")
     X = np.load(str(fc_path))
