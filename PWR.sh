@@ -85,7 +85,7 @@ FILEDIR="$(pwd)"
 NREP=10
 NTIME=1000
 EPSILON=""
-CONDAENV=""
+CONDAENV="FC_stability"
 
 # ── CV topology (sklearn RepeatedKFold) ───────────────────────────────────────
 K_OUTER="${K_OUTER:-10}"
