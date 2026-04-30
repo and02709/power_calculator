@@ -46,7 +46,7 @@ PCONNREF="${6}"     # Reference pconn — passed as --pconn1 (accepted for compa
 NUMTEMP="${7}"      # Number of pconn templates to average per simulation row
 NREP="${8}"         # Number of simulation repetitions per index row
 NTIME="${9}"        # Positional timepoint count (overridden by N_TIME below)
-CONDENV="${10}"     # Conda environment to activate for Python execution
+CONDAENV="${10}"     # Conda environment to activate for Python execution
 
 TASK_ID="${SLURM_ARRAY_TASK_ID}"   # 1-based index assigned by SLURM for this task
 
