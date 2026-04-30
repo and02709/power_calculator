@@ -42,7 +42,7 @@ PCONNREF="${6}"     # Single reference pconn — defines matrix dimensions and i
                     # as --pconn1 (the one template used in single-template mode)
 NREP="${7}"         # Number of simulation repetitions per index row
 NTIME="${8}"        # Number of timepoints (passed to Python but overridden — see below)
-CONDENV="${9}"      # Conda environment to activate for Python execution
+CONDAENV="${9}"      # Conda environment to activate for Python execution
 
 TASK_ID="${SLURM_ARRAY_TASK_ID}"   # 1-based index assigned by SLURM for this task
 
