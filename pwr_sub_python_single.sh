@@ -17,7 +17,8 @@
 #
 # Usage (via PWR.sh submit()):
 #   sbatch --array=1-$NJOBS pwr_sub_python_single.sh \
-#     <WRKDIR> <CHUNK_SIZE> <NINDEX> <FILEDIR> <PCONNDIR> <PCONNREF> <NREP> <NTIME>
+#     <WRKDIR> <CHUNK_SIZE> <NINDEX> <FILEDIR> <PCONNDIR> <PCONNREF> \
+#     <NREP> <NTIME> <CONDAENV>
 
 # ── SLURM directives ──────────────────────────────────────────────────────────
 #SBATCH --nodes=1
@@ -26,11 +27,11 @@
 #SBATCH --mem=16GB
 #SBATCH --time=10:00:00
 #SBATCH -p msismall
-#SBATCH -o pwr_sub_%A_%a.out   # %A = job ID, %a = array task ID
+#SBATCH -o pwr_sub_%A_%a.out
 #SBATCH -e pwr_sub_%A_%a.err
 #SBATCH --job-name=pwr_sub_py
 
-set -euo pipefail   # Exit on error (-e), unset variable (-u), or pipeline failure (-o pipefail)
+set -euo pipefail
 
 # ── Arguments ─────────────────────────────────────────────────────────────────
 WRKDIR="${1}"       # Root working directory; pwr_data/ subdirectory holds outputs
@@ -42,9 +43,10 @@ PCONNREF="${6}"     # Single reference pconn — defines matrix dimensions and i
                     # as --pconn1 (the one template used in single-template mode)
 NREP="${7}"         # Number of simulation repetitions per index row
 NTIME="${8}"        # Number of timepoints (passed to Python but overridden — see below)
-CONDAENV="${9}"      # Conda environment to activate for Python execution
+CONDAENV="${9}"     # Conda environment to activate for Python execution
+                    # (was CONDENV — typo fixed)
 
-TASK_ID="${SLURM_ARRAY_TASK_ID}"   # 1-based index assigned by SLURM for this task
+TASK_ID="${SLURM_ARRAY_TASK_ID}"
 
 # ── Simulation parameters ─────────────────────────────────────────────────────
 # N_TIME overrides the NTIME argument passed from PWR.sh. The hardcoded value
@@ -67,19 +69,14 @@ if [[ "$END" -gt "$NINDEX" ]]; then
 fi
 
 # ── Environment ───────────────────────────────────────────────────────────────
-# Purge any inherited modules to avoid version conflicts, then activate the
-# FC_stability conda environment which contains all required Python dependencies
-# (numpy, nibabel, etc.).
-module purge || true   # || true prevents -e from aborting if no modules are loaded
-# Note: the if condition is a workaround for using this on MSI where we have to source the conda environment path
-# without this, activate would would fail. Need to find better solution for production.
+module purge || true
+# Note: the if condition is a workaround for using this on MSI where we have to
+# source the conda environment path; without this, activate would fail.
 if [[ "$CONDAENV" == "FC_stability" ]]; then
   source /projects/standard/faird/shared/code/external/envs/miniconda3/load_miniconda3.sh
 fi
 conda activate "$CONDAENV"
 
-# Resolve the active Python binary explicitly rather than relying on PATH,
-# ensuring the correct interpreter is used after conda activation.
 PYTHON_BIN=$(which python)
 echo "[INFO] Using Python: $PYTHON_BIN"
 echo "[INFO] Processing Rows: $START to $END"
@@ -97,9 +94,9 @@ echo "[INFO] Processing Rows: $START to $END"
     "$PCONNREF" \
     "$NREP" \
     "$NTIME" \
-    "placeholder" \       # Satisfies NUMTEMP positional arg; ignored at runtime
-    --n_time "$N_TIME" \  # Overrides NTIME with the hardcoded 2000
-    --use_one_target \    # Activates single-template mode in pwr_process_chunk_single_z.py
-    --pconn1 "$PCONNREF"  # Supplies PCONNREF as the sole simulation template
+    "placeholder" \
+    --n_time "$N_TIME" \
+    --use_one_target \
+    --pconn1 "$PCONNREF"
 
 echo "[INFO] Task $TASK_ID finished successfully."
