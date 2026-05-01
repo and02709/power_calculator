@@ -548,6 +548,8 @@ submit "cv" "24:00:00" "128GB" "20" -- \
 # if final_data.sh crashes, the submit() call will propagate a non-zero
 # exit and the pipeline will abort before reaching it.
 submit "final_data" "12:00:00" "96GB" "8" -- --wait \
+  --export=ALL,MODEL_FILE="$MODEL_FILE",OUT_FORMAT="csv" \
+  -- \
   "$FILEDIR/final_data.sh" "$WRKDIR" "$FILEDIR" "$CONDAENV"
 
 # Pipeline complete — print the manifest path so the caller knows where
