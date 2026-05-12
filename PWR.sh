@@ -22,8 +22,8 @@ Usage: sbatch PWR.sh [OPTIONS]
 
 Required:
   --pconnref     PCONNREF      Pconn reference
-  --singletemp   0|1           Single-temperature mode (0=multi, 1=single)
-  --numtemp      INT           Number of temperatures (>= 1)
+  --singletemp   0|1           Single-templates mode (0=multi, 1=single)
+  --numtemp      INT           Number of templates (>= 1)
   --epsilon      FLOAT         Epsilon value (>= 0)
   --condaenv     ENV_NAME      Conda environment to use
 
