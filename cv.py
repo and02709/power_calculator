@@ -32,13 +32,11 @@ Inner CV (hyperparameter tuning, if the plugin uses GridSearchCV):
 Scoring
 -------
 SCORING dict maps metric names to sklearn scorer strings or make_scorer()
-objects.  All three metrics are collected for both train and test folds:
-    RMSE  — neg_root_mean_squared_error (sign-flipped; cv.py restores sign)
-    MAE   — neg_mean_absolute_error    (sign-flipped; cv.py restores sign)
-    R2    — coefficient of determination
-
-To add Pearson r or Spearman ρ, uncomment the block below SCORING and add
-the scorer objects to the dict.
+objects.  All four metrics are collected for both train and test folds:
+    RMSE    — neg_root_mean_squared_error (sign-flipped; cv.py restores sign)
+    MAE     — neg_mean_absolute_error    (sign-flipped; cv.py restores sign)
+    R2      — coefficient of determination
+    Pearson — Pearson correlation coefficient r (via scipy.stats.pearsonr)
 
 Outputs (written to WRKDIR/pwr_data/)
 --------------------------------------
@@ -69,6 +67,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from scipy.stats import pearsonr
 from sklearn import metrics
 from sklearn.model_selection import RepeatedKFold, cross_validate
 
@@ -89,28 +88,32 @@ VERSION = "cv.py v2-sklearn 2026-04-29"
 # cross_validate(return_train_score=True).  sklearn prefixes negated metrics
 # with "neg_"; the sign is flipped back to positive in _restore_sign() below.
 #
-# To add Pearson r or Spearman ρ:
+# Pearson r is included as a standard metric.  To also add Spearman ρ,
+# uncomment the block below and add score_spearman to SCORING.
 #
-#   from scipy.stats import pearsonr, spearmanr
-#
-#   def _pearson(y_true, y_pred):
-#       r, _ = pearsonr(y_true, y_pred)
-#       return float(r)
+#   from scipy.stats import spearmanr
 #
 #   def _spearman(y_true, y_pred):
 #       rho, _ = spearmanr(y_true, y_pred)
 #       return float(rho)
 #
-#   score_pearson  = metrics.make_scorer(_pearson,  greater_is_better=True)
 #   score_spearman = metrics.make_scorer(_spearman, greater_is_better=True)
-#
-#   SCORING["r"]   = score_pearson
 #   SCORING["Rho"] = score_spearman
 
+
+def _pearson(y_true, y_pred):
+    """Pearson correlation coefficient between true and predicted values."""
+    r, _ = pearsonr(y_true, y_pred)
+    return float(r)
+
+
+score_pearson = metrics.make_scorer(_pearson, greater_is_better=True)
+
 SCORING = {
-    "RMSE": "neg_root_mean_squared_error",
-    "MAE":  "neg_mean_absolute_error",
-    "R2":   "r2",
+    "RMSE":    "neg_root_mean_squared_error",
+    "MAE":     "neg_mean_absolute_error",
+    "R2":      "r2",
+    "Pearson": score_pearson,
 }
 
 # Metric names whose values are negated by sklearn and need sign restoration
@@ -185,35 +188,68 @@ def _restore_sign(cv_res: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def _print_per_fold_hyperparams(estimators) -> None:
+def _collect_per_fold_hyperparams(estimators) -> list:
     """
-    Print the chosen hyperparameter(s) for each outer fold.
+    Collect and print chosen hyperparameter(s) for each outer fold.
 
-    Works for both GridSearchCV estimators (``best_params_``) and Pipeline
-    estimators whose last step is a built-in CV model (e.g. ``RidgeCV``,
-    ``LassoCV`` expose ``alpha_``; ``ElasticNetCV`` also exposes ``l1_ratio_``).
+    Works for both GridSearchCV estimators (``best_params_``, ``best_score_``)
+    and Pipeline estimators whose last step is a built-in CV model (e.g.
+    ``RidgeCV`` / ``LassoCV`` expose ``alpha_``; ``ElasticNetCV`` also exposes
+    ``l1_ratio_``).
 
     Parameters
     ----------
     estimators : list
         ``scores['estimator']`` from cross_validate().
+
+    Returns
+    -------
+    list of dict
+        One dict per fold.  Keys are hyperparameter names; values are the
+        chosen values for that fold.  An extra key ``hp_cv_score`` holds the
+        inner-CV score used to select the hyperparameter (where available).
+        Folds with no detectable hyperparameter produce an empty dict.
     """
+    records = []
     for i, est in enumerate(estimators):
         prefix = f"[INFO] fold {i + 1:>2}"
+        fold_hp: dict = {}
+
         if hasattr(est, "best_params_"):
-            # GridSearchCV: print the winning parameter set
-            print(f"{prefix} best_params={est.best_params_}  "
-                  f"best_score={est.best_score_:.4f}")
+            # GridSearchCV: the winning parameter set and the inner-CV score
+            fold_hp.update(est.best_params_)
+            fold_hp["hp_cv_score"] = round(float(est.best_score_), 6)
+            print(
+                f"{prefix} best_params={est.best_params_}  "
+                f"best_score={est.best_score_:.4f}"
+            )
+
         elif hasattr(est, "named_steps"):
             # Pipeline: inspect the final step for CV-selected attributes
             last = list(est.named_steps.values())[-1]
             parts = []
             if hasattr(last, "alpha_"):
+                fold_hp["alpha"] = round(float(last.alpha_), 6)
                 parts.append(f"alpha={last.alpha_:.4g}")
             if hasattr(last, "l1_ratio_"):
+                fold_hp["l1_ratio"] = round(float(last.l1_ratio_), 6)
                 parts.append(f"l1_ratio={last.l1_ratio_:.4g}")
+            # RidgeCV stores per-alpha LOO scores when store_cv_results=True
+            if hasattr(last, "cv_values_") and last.cv_values_ is not None:
+                best_inner = float(np.min(last.cv_values_))
+                fold_hp["hp_cv_score"] = round(best_inner, 6)
+                parts.append(f"hp_cv_score={best_inner:.4g}")
             if parts:
                 print(f"{prefix} chosen {', '.join(parts)}")
+
+        records.append(fold_hp)
+    return records
+
+
+def _print_per_fold_hyperparams(estimators) -> None:
+    """Backward-compatible shim — delegates to _collect_per_fold_hyperparams."""
+    _collect_per_fold_hyperparams(estimators)
+
 
 
 # ---------------------------------------------------------------------------
@@ -493,10 +529,23 @@ def main() -> int:
     print("\n[RESULTS] Mean ± SD across all folds:")
     print(summary.to_string())
 
-    _print_per_fold_hyperparams(estimators)
+    # ── Collect per-fold hyperparameters and merge into results ───────────────
+    hp_records = _collect_per_fold_hyperparams(estimators)
+    hp_df = pd.DataFrame(hp_records, index=cv_res.index)
+
+    if not hp_df.empty and hp_df.notna().any().any():
+        # Prefix hyperparameter columns so they're clearly distinguishable
+        # from metric columns in the output CSV.
+        hp_df.columns = [f"hp_{c}" for c in hp_df.columns]
+        cv_res_with_hp = pd.concat([cv_res, hp_df], axis=1)
+        print("\n[RESULTS] Per-fold hyperparameters:")
+        print(hp_df.to_string(index=True))
+    else:
+        cv_res_with_hp = cv_res
+        print("\n[INFO] No tunable hyperparameters detected for this model.")
 
     # ── Write outputs ─────────────────────────────────────────────────────────
-    cv_res.to_csv(str(out_csv), index_label="fold")
+    cv_res_with_hp.to_csv(str(out_csv), index_label="fold")
     print(f"\n[OK] wrote {out_csv.name}")
 
     summary_csv = pwr_dir / f"cv_summary_size{size}_{model_name}.csv"

@@ -43,8 +43,8 @@ Optional CV topology (sklearn RepeatedKFold):
 Optional model selection:
   --model        MODEL_FILE    Model to use (default: ridge)
                                Options: ridge, ridge_nested, lasso, elastic_net,
-                                        svr, neural_network, random_forest,
-                                        gradient_boosting
+                                        svr, random_forest, gradient_boosting,
+                                        custom
   --pca                        Enable PCA preprocessing (default: off)
   --n-components INT           PCA components (default: 500)
 
@@ -116,10 +116,6 @@ SVR_C_VALS="${SVR_C_VALS:-0.1,1,10,100}"
 SVR_KERNEL="${SVR_KERNEL:-rbf}"
 SVR_EPSILON="${SVR_EPSILON:-0.1}"
 SVR_K_INNER="${SVR_K_INNER:-5}"
-NN_HIDDEN_LAYERS="${NN_HIDDEN_LAYERS:-256,128}"
-NN_LR="${NN_LR:-0.001}"
-NN_MAX_ITER="${NN_MAX_ITER:-500}"
-NN_ALPHA="${NN_ALPHA:-0.0001}"
 GB_N_ESTIMATORS="${GB_N_ESTIMATORS:-300}"
 GB_LR="${GB_LR:-0.05}"
 GB_MAX_DEPTH="${GB_MAX_DEPTH:-4}"
@@ -173,10 +169,6 @@ while [[ $# -gt 0 ]]; do
     --svr-kernel)     SVR_KERNEL="$2";       shift 2 ;;
     --svr-epsilon)    SVR_EPSILON="$2";      shift 2 ;;
     --svr-k-inner)    SVR_K_INNER="$2";      shift 2 ;;
-    --nn-hidden)      NN_HIDDEN_LAYERS="$2"; shift 2 ;;
-    --nn-lr)          NN_LR="$2";            shift 2 ;;
-    --nn-max-iter)    NN_MAX_ITER="$2";      shift 2 ;;
-    --nn-alpha)       NN_ALPHA="$2";         shift 2 ;;
     --gb-estimators)  GB_N_ESTIMATORS="$2";  shift 2 ;;
     --gb-lr)          GB_LR="$2";            shift 2 ;;
     --gb-max-depth)   GB_MAX_DEPTH="$2";     shift 2 ;;
@@ -266,7 +258,6 @@ echo "[INFO] LASSO_N_ALPHAS=$LASSO_N_ALPHAS  LASSO_CV_FOLDS=$LASSO_CV_FOLDS  LAS
 echo "[INFO] EN_L1_RATIOS=$EN_L1_RATIOS  EN_N_ALPHAS=$EN_N_ALPHAS  EN_CV_FOLDS=$EN_CV_FOLDS"
 echo "[INFO] RF_N_ESTIMATORS=$RF_N_ESTIMATORS  RF_MAX_FEATURES=$RF_MAX_FEATURES  RF_TUNE=$RF_TUNE  RF_K_INNER=$RF_K_INNER"
 echo "[INFO] SVR_C_VALS=$SVR_C_VALS  SVR_KERNEL=$SVR_KERNEL  SVR_EPSILON=$SVR_EPSILON  SVR_K_INNER=$SVR_K_INNER"
-echo "[INFO] NN_HIDDEN_LAYERS=$NN_HIDDEN_LAYERS  NN_LR=$NN_LR  NN_MAX_ITER=$NN_MAX_ITER  NN_ALPHA=$NN_ALPHA"
 echo "[INFO] GB_N_ESTIMATORS=$GB_N_ESTIMATORS  GB_LR=$GB_LR  GB_MAX_DEPTH=$GB_MAX_DEPTH  GB_TUNE=$GB_TUNE  GB_K_INNER=$GB_K_INNER"
 echo "[INFO] PWRDATA=$PWRDATA"
 echo "[INFO] SLURM_JOB_ID=${SLURM_JOB_ID:-<none>}"
@@ -523,7 +514,7 @@ fi
 # all sample-size CV jobs are complete.
 submit "cv" "24:00:00" "128GB" "20" -- \
   --array=1-"$NUMFILES" --wait \
-  --export=ALL,MODEL_FILE="$MODEL_FILE",USE_PCA="$USE_PCA",N_COMPONENTS="$N_COMPONENTS",K_OUTER="$K_OUTER",N_OUTER="$N_OUTER",RANDOM_STATE="$RANDOM_STATE",N_JOBS="$N_JOBS",RIDGE_ALPHAS="$RIDGE_ALPHAS",RIDGE_CV_FOLDS="$RIDGE_CV_FOLDS",RIDGE_K_INNER="$RIDGE_K_INNER",LASSO_N_ALPHAS="$LASSO_N_ALPHAS",LASSO_CV_FOLDS="$LASSO_CV_FOLDS",LASSO_MAX_ITER="$LASSO_MAX_ITER",EN_L1_RATIOS="$EN_L1_RATIOS",EN_N_ALPHAS="$EN_N_ALPHAS",EN_CV_FOLDS="$EN_CV_FOLDS",RF_N_ESTIMATORS="$RF_N_ESTIMATORS",RF_MAX_FEATURES="$RF_MAX_FEATURES",RF_TUNE="$RF_TUNE",RF_K_INNER="$RF_K_INNER",SVR_C_VALS="$SVR_C_VALS",SVR_KERNEL="$SVR_KERNEL",SVR_EPSILON="$SVR_EPSILON",SVR_K_INNER="$SVR_K_INNER",NN_HIDDEN_LAYERS="$NN_HIDDEN_LAYERS",NN_LR="$NN_LR",NN_MAX_ITER="$NN_MAX_ITER",NN_ALPHA="$NN_ALPHA",GB_N_ESTIMATORS="$GB_N_ESTIMATORS",GB_LR="$GB_LR",GB_MAX_DEPTH="$GB_MAX_DEPTH",GB_TUNE="$GB_TUNE",GB_K_INNER="$GB_K_INNER" \
+  --export=ALL,MODEL_FILE="$MODEL_FILE",USE_PCA="$USE_PCA",N_COMPONENTS="$N_COMPONENTS",K_OUTER="$K_OUTER",N_OUTER="$N_OUTER",RANDOM_STATE="$RANDOM_STATE",N_JOBS="$N_JOBS",RIDGE_ALPHAS="$RIDGE_ALPHAS",RIDGE_CV_FOLDS="$RIDGE_CV_FOLDS",RIDGE_K_INNER="$RIDGE_K_INNER",LASSO_N_ALPHAS="$LASSO_N_ALPHAS",LASSO_CV_FOLDS="$LASSO_CV_FOLDS",LASSO_MAX_ITER="$LASSO_MAX_ITER",EN_L1_RATIOS="$EN_L1_RATIOS",EN_N_ALPHAS="$EN_N_ALPHAS",EN_CV_FOLDS="$EN_CV_FOLDS",RF_N_ESTIMATORS="$RF_N_ESTIMATORS",RF_MAX_FEATURES="$RF_MAX_FEATURES",RF_TUNE="$RF_TUNE",RF_K_INNER="$RF_K_INNER",SVR_C_VALS="$SVR_C_VALS",SVR_KERNEL="$SVR_KERNEL",SVR_EPSILON="$SVR_EPSILON",SVR_K_INNER="$SVR_K_INNER",GB_N_ESTIMATORS="$GB_N_ESTIMATORS",GB_LR="$GB_LR",GB_MAX_DEPTH="$GB_MAX_DEPTH",GB_TUNE="$GB_TUNE",GB_K_INNER="$GB_K_INNER" \
   -- \
   "$FILEDIR/cv.sh" "$WRKDIR" "$FILEDIR" "$NUMFILES" "$CONDAENV"
 

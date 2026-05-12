@@ -391,6 +391,22 @@ def main():
         print(f"[OK] size={size}: wrote {out_cov.name} {cov_mat.shape}")
         print(f"[OK] size={size}: wrote {out_cor.name} {cor_mat.shape}")
 
+        # ── Remove individual subject-level files to free disk space ──────────
+        # The full_<size>_*.npy matrices now contain all data; the per-subject
+        # dat_size_<N>_index_<k>_{cov,cor,meta}.* files are no longer needed.
+        n_removed = 0
+        for idx in idxs:
+            for fpath in (cov_map.get((size, idx)), cor_map.get((size, idx))):
+                if fpath is not None and fpath.exists():
+                    fpath.unlink()
+                    n_removed += 1
+            # Also remove the companion meta.json if present
+            meta_path = outdir / f"dat_size_{size}_index_{idx}_meta.json"
+            if meta_path.exists():
+                meta_path.unlink()
+                n_removed += 1
+        print(f"[OK] size={size}: removed {n_removed} individual subject-level files")
+
         # ── Compute y = cor_mat @ ridge_vec ───────────────────────────────────
         # Projects each subject's correlation edge vector onto the ridge weight
         # vector to produce a scalar predicted phenotype. Shape: (n_obs,).
