@@ -106,7 +106,7 @@ sbatch PWR.sh [OPTIONS]
 |-----------------|------------------------------------------------------------------------------------------------------------------|
 | `--pconnref`    | Path to the reference `.pconn.nii` file used for the dimensions or if a single template is invoked              |
 | `--singletemp`  | `0` = simulate imaging data by drawing multiple pconn files to serve as templates, `1` = only use one pconn template for all simulated samples |
-| `--numtemp`     | Number of templates to be averaged for use in the eigendecomposition                                            |
+| `--numtemp`     | Number of pconn templates (subjects) to be averaged for use in the eigendecomposition                                            |
 | `--kfolds`      | Number of cross-validation folds                                                                                 |
 | `--epsilon`     | Epsilon threshold for covariance regularization (float >= 0)                                                     |
 
@@ -117,7 +117,7 @@ sbatch PWR.sh [OPTIONS]
 | `--wrkdir`    | `$PWD`   | Working directory where all outputs will be written                |
 | `--pconndir`  | `$PWD`   | Directory containing subject `.pconn.nii` files to be used as templates |
 | `--filedir`   | `$PWD`   | Directory containing the pipeline scripts (e.g. `cv.sh`, `cv.py`) |
-| `--nrep`      | `10`     | Number of simulation time series to be averaged for a given subject |
+| `--nrep`      | `10`     | Number of simulation time series to be averaged for a given eigendecomposition |
 | `--ntime`     | `1000`   | Number of timepoints to be simulated for the brain imaging data    |
 
 ### Model Selection
