@@ -38,7 +38,7 @@ Optional CV topology (sklearn RepeatedKFold):
   --k-outer      INT           Outer CV folds (default: 10)
   --n-outer      INT           Outer CV repeats (default: 2; total = k*n)
   --random-state INT           RNG seed for fold generation (default: 123456)
-  --n-jobs       INT           Parallel jobs for cross_validate (default: 1)
+  --n-jobs       INT           USE WITH CAUTION: Parallel jobs for cross_validate (default: 1)
 
 Optional model selection:
   --model        MODEL_FILE    Model to use (default: ridge)
