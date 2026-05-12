@@ -31,8 +31,8 @@ Optional with defaults:
   --wrkdir       WRKDIR        Working directory (default: PWD)
   --pconndir     PCONNDIR      Pconn directory (default: PWD)
   --filedir      FILEDIR       Script/file directory (default: PWD)
-  --nrep         INT           Number of repetitions (default: 10)
-  --ntime        INT           Number of timepoints (default: 1000)
+  --nrep         INT           Number of timeseries simulations per subject (default: 10)
+  --ntime        INT           Number of timepoints per timeseries simulation (default: 1000)
 
 Optional CV topology (sklearn RepeatedKFold):
   --k-outer      INT           Outer CV folds (default: 10)
