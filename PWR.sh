@@ -503,7 +503,7 @@ fi
 
 
 # ---------------------------------------------------------------------------
-# Step 5 — Cross-validation (sklearn cross_validate; one task per sample size)
+# Step 4 — Cross-validation (sklearn cross_validate; one task per sample size)
 # ---------------------------------------------------------------------------
 # Fits and evaluates the chosen predictive model across all outer CV folds
 # for each sample size in parallel.  One array task per sample size
@@ -528,7 +528,7 @@ submit "cv" "24:00:00" "128GB" "20" -- \
   "$FILEDIR/cv.sh" "$WRKDIR" "$FILEDIR" "$NUMFILES" "$CONDAENV"
 
 # ---------------------------------------------------------------------------
-# Step 8 — Final data
+# Step 5 — Final data
 # ---------------------------------------------------------------------------
 # Collects all per-fold CV results produced in Step 5 and aggregates them
 # into the final power curve outputs (e.g. mean/SD of prediction accuracy
