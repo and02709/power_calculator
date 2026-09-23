@@ -67,8 +67,8 @@ sbatch PWR.sh \
   --pconnref  /path/to/reference.pconn.nii \
   --singletemp 0 \
   --numtemp    5 \
-  --kfolds     5 \
-  --epsilon    1.0
+  --epsilon    1.0 \
+  --condaenv   FC_stability
 ```
 
 `--wrkdir`, `--pconndir`, and `--filedir` all default to `$PWD`. `--nrep` defaults to `10` and `--ntime` to `1000`. PCA preprocessing is off by default; add `--pca` to enable it.
@@ -80,8 +80,10 @@ sbatch PWR.sh \
   --pconnref   /path/to/reference.pconn.nii \
   --singletemp 0 \
   --numtemp    5 \
-  --kfolds     10 \
   --epsilon    0.5 \
+  --condaenv   FC_stability \
+  --k-outer    10 \
+  --n-outer    2 \
   --wrkdir     /scratch.global/myuser/pwr_output \
   --pconndir   /path/to/pconn_subjects \
   --filedir    /path/to/power_calculator \
@@ -107,8 +109,8 @@ sbatch PWR.sh [OPTIONS]
 | `--pconnref`    | Path to the reference `.pconn.nii` file used for the dimensions or if a single template is invoked              |
 | `--singletemp`  | `0` = simulate imaging data by drawing multiple pconn files to serve as templates, `1` = only use one pconn template for all simulated samples |
 | `--numtemp`     | Number of pconn templates (subjects) to be averaged for use in the eigendecomposition                                            |
-| `--kfolds`      | Number of cross-validation folds                                                                                 |
-| `--epsilon`     | Epsilon threshold for covariance regularization (float >= 0)                                                     |
+| `--epsilon`     | Noise scale for the phenotype: `yt = y + N(0, (epsilon * sd(y))^2)`; `0` = no noise (float >= 0)                 |
+| `--condaenv`    | Conda environment activated by every step script                                                                 |
 
 ### Optional Arguments (with defaults)
 
@@ -119,6 +121,20 @@ sbatch PWR.sh [OPTIONS]
 | `--filedir`   | `$PWD`   | Directory containing the pipeline scripts (e.g. `cv.sh`, `cv.py`) |
 | `--nrep`      | `10`     | Number of simulation time series to be averaged for a given eigendecomposition |
 | `--ntime`     | `1000`   | Number of timepoints to be simulated for the brain imaging data    |
+
+### Pipeline Control (partial runs and epsilon sweeps)
+
+| Flag           | Default | Description                                                                 |
+|----------------|---------|-----------------------------------------------------------------------------|
+| `--start-step` | `setup` | First step to run: `setup`, `simulate`, `combine`, `noise`, `cv`, `final`   |
+| `--stop-step`  | `final` | Last step to run (same vocabulary)                                          |
+| `--reuse-from` | none    | Reuse another run's combined matrices: symlinks its `full_<size>_{cov,cor,y}.npy` into this run's `pwr_data/` and implies `--start-step noise` |
+| `--noise-seed` | unseeded | RNG seed for the noise step, making the phenotype draw reproducible        |
+
+Required arguments are enforced only for the steps that actually run:
+`--pconnref`, `--singletemp` and `--numtemp` are needed only when the simulate
+step runs, and `--epsilon` only when the combine or noise step runs. A
+CV-onwards rerun therefore needs neither.
 
 ### Model Selection
 
@@ -192,10 +208,17 @@ sbatch /scratch.global/and02709/power_calculator/PWR.sh \
 `pwr_setup.py` generates the sample-size index grid and writes it to `pwr_data/pwr_index_file.txt`. The grid covers 10 logarithmically spaced sample sizes:
 
 ```
-100, 139, 194, 271, 378, 528, 736, 1027, 1433, 2000
+200, 286, 409, 585, 836, 1196, 1710, 2445, 3497, 5000
 ```
 
-Each size N is repeated N times (one replicate per row), yielding 8,506 total index rows. These are chunked into batches of 100 for array job submission (~86 array jobs).
+Each size N contributes N rows (one per simulated subject in a dataset of that size), yielding 16,164 total index rows. These are chunked into batches of 100 for array job submission (~162 array jobs).
+
+The ladder is built with `np.logspace` from `SIZE_MIN` to `SIZE_MAX` in `N_SIZES` steps. All three can be overridden by environment variable, as can the ladder itself:
+
+```bash
+export SIZE_MIN=100 SIZE_MAX=2000 N_SIZES=10   # different log-spaced ladder
+export SAMPLE_SIZES="100,200,400,800"          # or an explicit one
+```
 
 **Step 2 — Simulation array jobs (`pwr_sub_python.sh`)**
 
@@ -264,17 +287,112 @@ In the example above, R² rises from near zero at N=100 to ~0.44 at N=2000. The 
 ---
 <br />
 
+## Epsilon Sweeps — Simulate Once, Reuse Everywhere
+
+Epsilon controls the noise added to the phenotype in Step 3:
+
+```
+y  = cor_mat @ ridge_vec                    # clean signal
+yt = y + N(0, (epsilon * sd(y))^2)          # what cv.py fits
+```
+
+Nothing upstream of that depends on it. The simulated matrices, and the
+`full_<size>_{cov,cor}.npy` files stacked from them, are identical for every
+epsilon value — so running the whole pipeline once per epsilon repeats its
+most expensive stage for no reason.
+
+Instead, run Steps 1–3 once and reuse the result:
+
+```bash
+./run_epsilon_sweep.sh \
+  --sweepdir /scratch.global/$USER/pwr_sweep \
+  --pconndir /path/to/pconn/pool \
+  --pconnref /path/to/reference.pconn.nii \
+  --filedir  /path/to/power_calculator \
+  --condaenv FC_stability \
+  --eps-min 1 --eps-max 10 --eps-step 1
+```
+
+This submits:
+
+1. **A base run** — `PWR.sh --stop-step combine`, writing
+   `base/pwr_data/full_<size>_{cov,cor,y}.npy`. No CV, no aggregation.
+2. **One run per epsilon** — `PWR.sh --reuse-from <base> --epsilon <e>`, queued
+   behind the base run with `--dependency=afterok`. Each symlinks the base
+   matrices, rewrites `full_<size>_yt.npy` for its own epsilon, then runs CV
+   and aggregation as usual.
+
+Every epsilon is evaluated on the *same* simulated subjects, so differences
+between the resulting power curves reflect phenotype SNR rather than a fresh
+draw of simulated brains. Add `--dry-run` to print the `sbatch` commands
+without submitting, and `--base-ready DIR` to hang a new sweep off a base run
+that already finished.
+
+Once everything completes, combine the per-epsilon curves:
+
+```bash
+python3 collect_sweep.py /scratch.global/$USER/pwr_sweep
+```
+
+which writes `power_curves_by_epsilon.csv` (long format: epsilon, size,
+mean_metric, sd_metric) and `power_curves_by_epsilon.png` (one curve per
+epsilon on a shared axis). Pass `--no-errorbars` if ten sets of SD bars
+overlap too heavily to read.
+
+### Doing it by hand
+
+The launcher is a convenience wrapper; the same thing works step by step:
+
+```bash
+# 1. Base run: Steps 1-3 only. --epsilon 0 is required by combine_data.py,
+#    but the yt file it writes is discarded and rewritten per epsilon.
+sbatch PWR.sh --wrkdir /path/to/base --pconndir /path/to/pconn \
+              --pconnref myref --singletemp 0 --numtemp 1 \
+              --filedir /path/to/scripts --condaenv FC_stability \
+              --epsilon 0 --stop-step combine
+
+# 2. One run per epsilon, reusing those matrices.
+sbatch PWR.sh --wrkdir /path/to/sweep/eps_3 --filedir /path/to/scripts \
+              --condaenv FC_stability --epsilon 3 \
+              --reuse-from /path/to/base --noise-seed 123459
+```
+
+`--start-step`/`--stop-step` are useful outside sweeps too — for example,
+`--start-step cv` reruns cross-validation with a different model on data that
+is already combined, without touching the simulation.
+
+### What reuse links, and what it does not
+
+| File | Reused | Why |
+|------|--------|-----|
+| `full_<size>_cov.npy` | symlinked | Epsilon-independent |
+| `full_<size>_cor.npy` | symlinked | Epsilon-independent; the feature matrix `cv.py` loads |
+| `full_<size>_y.npy`   | symlinked | Clean phenotype, epsilon-independent |
+| `pconn_template_lookup.csv` | symlinked | Provenance |
+| `full_<size>_yt.npy`  | **written fresh** | The one file epsilon changes |
+
+Symlinks rather than copies keep the sweep to one physical copy of the
+simulated data, which matters when `full_5000_cor.npy` alone runs to several
+gigabytes.
+
+Note that `combine_data.py` deletes the per-subject
+`dat_size_<N>_index_<k>_*` files once a size has been stacked, so the base run
+cannot be re-combined later. The `full_*` matrices are the durable artifact —
+keep the base directory for as long as the sweep might be extended.
+
+---
+<br />
+
 ## Pipeline Steps Reference
 
 | Step | Script                                            | Description                                                             |
 |------|---------------------------------------------------|-------------------------------------------------------------------------|
 | 1    | `pwr_setup.sh` / `pwr_setup.py`                  | Generates `pwr_index_file.txt` with the (size, subject) index grid      |
 | 2    | `pwr_sub_python.sh` / `pwr_sub_python_single.sh` | Array job: simulates FC covariance matrices from the reference pconn    |
-| 3    | `combine_data.sh` / `combine_data.py`            | Stacks per-subject covariance files into full matrices per sample size  |
-| 4    | `cvGen.sh` / `cvGen.py`                          | Generates k-fold train/test splits (`.npz`) for each sample size        |
-| 5    | `setupCVmetrics.sh` / `setupCVmetrics.py`        | Initializes metric output structures                                    |
-| 6    | `cv.sh` / `cv.py`                                | Array job: runs CV for each fold/sample-size combination                |
-| 7    | `final_data.sh` / `final_data.py`                | Aggregates R² metrics, builds summary tables, and plots the power curve |
+| 3    | `combine_data.sh` / `combine_data.py`            | Stacks per-subject files into full matrices per sample size, computes `y` and the noisy `yt` |
+| 3b   | `apply_epsilon.sh` / `apply_epsilon.py`          | Rewrites `yt` for a new epsilon from existing combined data; runs only when the invocation starts at `noise` |
+| 4    | `cv.sh` / `cv.py`                                | Array job: runs all CV folds for one sample size per task               |
+| 5    | `final_data.sh` / `final_data.py`                | Aggregates R² metrics, builds summary tables, and plots the power curve |
 
 A `job_manifest.tsv` is written to `$WRKDIR/OUT/` recording the SLURM job ID, stdout path, and stderr path for every submitted step.
 
@@ -348,11 +466,12 @@ power_calculator/
 ├── pwr_sub_python_single.sh       # Step 2: single-temp worker dispatcher
 ├── pwr_process_chunk_z.py         # Core FC simulation (multi-temp)
 ├── pwr_process_chunk_single_z.py  # Core FC simulation (single-temp)
-├── combine_data.sh / .py          # Step 3: covariance aggregation
-├── cvGen.sh / .py                 # Step 4: CV split generation
-├── setupCVmetrics.sh / .py        # Step 5: metric initialization
-├── cv.sh / .py                    # Step 6: cross-validation runner
-├── final_data.sh / .py            # Step 7: aggregation and plotting
+├── combine_data.sh / .py          # Step 3: aggregation, phenotype, noise
+├── apply_epsilon.sh / .py         # Step 3b: rewrite yt for a new epsilon
+├── cv.sh / .py                    # Step 4: cross-validation runner
+├── final_data.sh / .py            # Step 5: aggregation and plotting
+├── run_epsilon_sweep.sh           # Launcher: one base run + one run per epsilon
+├── collect_sweep.py               # Combines per-epsilon curves into one figure
 ├── ridge_model_generation.py      # Standalone ridge weight utility
 ├── models/
 │   ├── TEMPLATE.py                # Template for adding new models

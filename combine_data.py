@@ -355,6 +355,13 @@ def main():
         pyreadr = None
         pd = None
 
+    # ── Provenance table ──────────────────────────────────────────────────────
+    # Written BEFORE the aggregation loop, because that loop deletes the
+    # dat_size_*_index_*_meta.json files once a size has been stacked. Writing
+    # it afterwards would always find zero meta files and silently skip the
+    # lookup (and leave final_data.py with nothing to rebuild it from).
+    write_template_lookup(outdir)
+
     # ── Per-size aggregation loop ─────────────────────────────────────────────
     for size in sizes_sorted:
         idxs = sorted(by_size[size])
@@ -449,7 +456,6 @@ def main():
             pyreadr.write_rds(str(rds_path), cov_df)
             print(f"[OK] size={size}: wrote {rds_path.name} (cov only, R-style)")
 
-    write_template_lookup(outdir)
     print("[DONE] combine_data complete.")
 
 

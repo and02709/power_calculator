@@ -34,6 +34,22 @@ Optional with defaults:
   --nrep         INT           Number of timeseries simulations per subject (default: 10)
   --ntime        INT           Number of timepoints per timeseries simulation (default: 1000)
 
+Optional pipeline control (partial runs / epsilon sweeps):
+  --start-step   STEP          First step to run (default: setup)
+  --stop-step    STEP          Last step to run  (default: final)
+                               STEP is one of: setup, simulate, combine, noise, cv, final
+  --reuse-from   DIR           Reuse the combined matrices from another run's
+                               working directory: symlinks its
+                               full_<size>_{cov,cor,y}.npy into this run's
+                               pwr_data/ and implies --start-step noise.
+                               Simulation is skipped entirely, so only the
+                               phenotype noise, CV and aggregation are redone.
+  --noise-seed   INT           RNG seed for the noise step (default: unseeded)
+
+  Required arguments are only enforced for the steps that actually run:
+  --pconnref/--singletemp/--numtemp are needed only when the simulate step
+  runs, and --epsilon only when the combine or noise step runs.
+
 Optional CV topology (sklearn RepeatedKFold):
   --k-outer      INT           Outer CV folds (default: 10)
   --n-outer      INT           Outer CV repeats (default: 2; total = k*n)
@@ -68,6 +84,19 @@ Example:
                 --filedir /path/to/scripts --nrep 10 \\
                 --ntime 500 --epsilon 0.1 --model ridge \\
                 --k-outer 10 --n-outer 2 --ridge-alphas '1,10,100,1000'
+
+Epsilon sweep (simulate once, reuse for every epsilon):
+  # 1. Base run: simulate and combine only, no CV.
+  sbatch PWR.sh --wrkdir /path/to/base --pconndir /path/to/pconn \\
+                --pconnref myref --singletemp 0 --numtemp 5 \\
+                --filedir /path/to/scripts --epsilon 0 \\
+                --condaenv FC_stability --stop-step combine
+
+  # 2. One run per epsilon, reusing the base run's combined matrices.
+  sbatch PWR.sh --wrkdir /path/to/sweep/eps_3 --filedir /path/to/scripts \\
+                --condaenv FC_stability --epsilon 3 --reuse-from /path/to/base
+
+  See run_epsilon_sweep.sh for a launcher that does both with dependencies.
 EOF
   exit 1
 }
@@ -86,6 +115,18 @@ NREP=10
 NTIME=1000
 EPSILON=""
 CONDAENV=""
+
+# ── Pipeline control ──────────────────────────────────────────────────────────
+# START_STEP/STOP_STEP bound which steps this invocation runs, so a run can
+# stop after producing the combined matrices, or pick up from them later.
+# REUSE_FROM points at another run's working directory whose combined matrices
+# should be reused instead of simulated again (see the reuse block below).
+START_STEP="setup"
+STOP_STEP="final"
+START_STEP_SET=false   # Tracks whether the user set --start-step explicitly,
+                       # so --reuse-from can default it without overriding them
+REUSE_FROM=""
+NOISE_SEED=""          # Empty = unseeded draw, matching combine_data.py
 
 # ── CV topology (sklearn RepeatedKFold) ───────────────────────────────────────
 K_OUTER="${K_OUTER:-10}"
@@ -142,6 +183,11 @@ while [[ $# -gt 0 ]]; do
     --ntime)          NTIME="$2";            shift 2 ;;
     --epsilon)        EPSILON="$2";          shift 2 ;;
     --condaenv)       CONDAENV="$2";         shift 2 ;;
+    # Pipeline control
+    --start-step)     START_STEP="$2"; START_STEP_SET=true; shift 2 ;;
+    --stop-step)      STOP_STEP="$2";        shift 2 ;;
+    --reuse-from)     REUSE_FROM="$2";       shift 2 ;;
+    --noise-seed)     NOISE_SEED="$2";       shift 2 ;;
     # CV topology
     --k-outer)        K_OUTER="$2";          shift 2 ;;
     --n-outer)        N_OUTER="$2";          shift 2 ;;
@@ -186,11 +232,79 @@ done
 # Validate required arguments
 # ---------------------------------------------------------------------------
 # We use this to prevent execution of the script if these five arguments are missing from the command line.
+# ── Step window ───────────────────────────────────────────────────────────────
+# Each pipeline step has a fixed ordinal. START_STEP and STOP_STEP bound the
+# window of steps this invocation runs, which is what makes partial runs
+# (simulate-only, or CV-onwards) possible.
+#
+#   1 setup     pwr_setup.sh      — build pwr_index_file.txt
+#   2 simulate  pwr_sub_python*.sh— simulate per-subject matrices
+#   3 combine   combine_data.sh   — stack matrices, compute y and yt
+#   4 noise     apply_epsilon.sh  — recompute yt only, for a new epsilon
+#   5 cv        cv.sh             — cross-validate per sample size
+#   6 final     final_data.sh     — aggregate and plot the power curve
+step_index() {
+  case "$1" in
+    setup)    echo 1 ;;
+    simulate) echo 2 ;;
+    combine)  echo 3 ;;
+    noise)    echo 4 ;;
+    cv)       echo 5 ;;
+    final)    echo 6 ;;
+    *)        echo 0 ;;
+  esac
+}
+
+# --reuse-from means the combined matrices already exist elsewhere, so the
+# only sensible entry point is the noise step. An explicit --start-step still
+# wins, which allows e.g. reusing a base run and jumping straight to cv.
+if [[ -n "$REUSE_FROM" && "$START_STEP_SET" == "false" ]]; then
+  START_STEP="noise"
+fi
+
+START_IDX=$(step_index "$START_STEP")
+STOP_IDX=$(step_index "$STOP_STEP")
+
+if (( START_IDX == 0 )); then
+  echo "[FATAL] --start-step must be one of: setup simulate combine noise cv final (got: '$START_STEP')" >&2
+  exit 1
+fi
+if (( STOP_IDX == 0 )); then
+  echo "[FATAL] --stop-step must be one of: setup simulate combine noise cv final (got: '$STOP_STEP')" >&2
+  exit 1
+fi
+if (( START_IDX > STOP_IDX )); then
+  echo "[FATAL] --start-step ($START_STEP) comes after --stop-step ($STOP_STEP)" >&2
+  exit 1
+fi
+
+# run_step NAME — true when NAME falls inside the requested window.
+run_step() {
+  local idx; idx=$(step_index "$1")
+  (( idx >= START_IDX && idx <= STOP_IDX ))
+}
+
+# The noise step is the cheap stand-in for combine when only epsilon changes,
+# so it is skipped whenever combine itself runs in this invocation (combine
+# already writes yt). It therefore only fires when the run starts at noise.
+RUN_NOISE=false
+if (( START_IDX == 4 )) && run_step noise; then
+  RUN_NOISE=true
+fi
+
+# ── Required arguments, scoped to the steps that will run ─────────────────────
+# Arguments are only demanded when a step that consumes them is inside the
+# window. A CV-onwards rerun, for instance, needs neither a pconn reference
+# nor an epsilon.
 missing=()
-[[ -z "$PCONNREF"   ]] && missing+=(--pconnref)
-[[ -z "$SINGLETEMP" ]] && missing+=(--singletemp)
-[[ -z "$NUMTEMP"    ]] && missing+=(--numtemp)
-[[ -z "$EPSILON"    ]] && missing+=(--epsilon)
+if run_step simulate; then
+  [[ -z "$PCONNREF"   ]] && missing+=(--pconnref)
+  [[ -z "$SINGLETEMP" ]] && missing+=(--singletemp)
+  [[ -z "$NUMTEMP"    ]] && missing+=(--numtemp)
+fi
+if run_step combine || [[ "$RUN_NOISE" == "true" ]]; then
+  [[ -z "$EPSILON"    ]] && missing+=(--epsilon)
+fi
 #not adding condaenv check here as we have a specific error message for it below
 
 
@@ -198,6 +312,12 @@ if [[ ${#missing[@]} -gt 0 ]]; then
   echo "[FATAL] Missing required arguments: ${missing[*]}" >&2
   usage
 fi
+
+# Unused-but-unset arguments are given placeholder values so the info dump and
+# any downstream references stay valid under `set -u`.
+[[ -z "$EPSILON"    ]] && EPSILON=0
+[[ -z "$SINGLETEMP" ]] && SINGLETEMP=0
+[[ -z "$NUMTEMP"    ]] && NUMTEMP=1
 
 if [[ "$SINGLETEMP" != "0" && "$SINGLETEMP" != "1" ]]; then
   echo "[FATAL] --singletemp must be 0 or 1" >&2
@@ -215,6 +335,16 @@ if ! [[ "$EPSILON" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
 fi
 if (( $(echo "$EPSILON < 0" | bc -l) )); then
   echo "[FATAL] --epsilon must be >= 0" >&2
+  exit 1
+fi
+
+if [[ -n "$NOISE_SEED" ]] && ! [[ "$NOISE_SEED" =~ ^[0-9]+$ ]]; then
+  echo "[FATAL] --noise-seed must be a non-negative integer (got: '$NOISE_SEED')" >&2
+  exit 1
+fi
+
+if [[ -n "$REUSE_FROM" && ! -d "$REUSE_FROM/pwr_data" ]]; then
+  echo "[FATAL] --reuse-from '$REUSE_FROM' has no pwr_data/ directory" >&2
   exit 1
 fi
 if [[ -z "$CONDAENV" ]]; then
@@ -260,6 +390,8 @@ echo "[INFO] RF_N_ESTIMATORS=$RF_N_ESTIMATORS  RF_MAX_FEATURES=$RF_MAX_FEATURES 
 echo "[INFO] SVR_C_VALS=$SVR_C_VALS  SVR_KERNEL=$SVR_KERNEL  SVR_EPSILON=$SVR_EPSILON  SVR_K_INNER=$SVR_K_INNER"
 echo "[INFO] GB_N_ESTIMATORS=$GB_N_ESTIMATORS  GB_LR=$GB_LR  GB_MAX_DEPTH=$GB_MAX_DEPTH  GB_TUNE=$GB_TUNE  GB_K_INNER=$GB_K_INNER"
 echo "[INFO] PWRDATA=$PWRDATA"
+echo "[INFO] START_STEP=$START_STEP  STOP_STEP=$STOP_STEP  RUN_NOISE=$RUN_NOISE"
+echo "[INFO] REUSE_FROM=${REUSE_FROM:-<none>}  NOISE_SEED=${NOISE_SEED:-<unseeded>}"
 echo "[INFO] SLURM_JOB_ID=${SLURM_JOB_ID:-<none>}"
 echo "[INFO] SLURM_SUBMIT_DIR=${SLURM_SUBMIT_DIR:-<none>}"
 echo "===================="
@@ -269,6 +401,41 @@ cd "$PWRDATA"
 
 manifest="$OUTDIR/job_manifest.tsv"
 echo -e "step\tjobid\tstdout\tstderr" > "$manifest"
+
+# ---------------------------------------------------------------------------
+# Reuse block — link another run's combined matrices into this pwr_data
+# ---------------------------------------------------------------------------
+# Symlinks (not copies) keep an epsilon sweep to one physical copy of the
+# simulated data, which matters because full_<size>_cor.npy at the top of the
+# size ladder runs to gigabytes.
+#
+# Only the epsilon-independent products are linked:
+#   full_<size>_cov.npy / _cor.npy   simulated matrices  (identical per epsilon)
+#   full_<size>_y.npy                clean phenotype     (identical per epsilon)
+#   pconn_template_lookup.csv        provenance
+#
+# full_<size>_yt.npy is deliberately NOT linked — it is the one file epsilon
+# changes, and linking it would have the noise step overwrite the base run's
+# copy through the symlink.
+if [[ -n "$REUSE_FROM" ]]; then
+  REUSE_DATA="$REUSE_FROM/pwr_data"
+  echo "[INFO] Reusing combined matrices from $REUSE_DATA"
+
+  n_linked=0
+  shopt -s nullglob
+  for src in "$REUSE_DATA"/full_*_cov.npy "$REUSE_DATA"/full_*_cor.npy \
+             "$REUSE_DATA"/full_*_y.npy   "$REUSE_DATA"/pconn_template_lookup.csv; do
+    ln -sfn "$src" "$PWRDATA/$(basename "$src")"
+    n_linked=$(( n_linked + 1 ))
+  done
+  shopt -u nullglob
+
+  echo "[INFO] linked $n_linked file(s) from $REUSE_DATA"
+  if (( n_linked == 0 )); then
+    echo "[FATAL] --reuse-from found no full_*.npy files in $REUSE_DATA" >&2
+    exit 1
+  fi
+fi
 
 # ---------------------------------------------------------------------------
 # submit STEP TIME MEM CPUS [sbatch args ...] -- script args ...
@@ -377,14 +544,20 @@ submit() {
 # This step generates pwr_index_file.txt, which defines the simulation
 # index space (one row per sample-size/dataset-size combination). All
 # subsequent array jobs depend on this file existing and being non-empty.
-submit "pwr_setup" "1:00:00" "16GB" "2" -- --wait \
-  "$FILEDIR/pwr_setup.sh" "$WRKDIR" "$FILEDIR" "$CONDAENV"
+if run_step setup; then
+  submit "pwr_setup" "1:00:00" "16GB" "2" -- --wait \
+    "$FILEDIR/pwr_setup.sh" "$WRKDIR" "$FILEDIR" "$CONDAENV"
+else
+  echo "[SKIP] pwr_setup (outside --start-step/--stop-step window)"
+fi
 
 # Guard: confirm pwr_index_file.txt was actually produced and is non-empty.
 # -s tests that the file exists AND has size > 0. If it's missing or empty,
 # something went wrong in pwr_setup and there is nothing to array over —
 # abort early rather than silently submitting zero-work array jobs.
-if [ ! -s "$PWRDATA/pwr_index_file.txt" ]; then
+# Only enforced when the simulate step will run, since that is the only
+# consumer of the index file; later-starting runs never read it.
+if run_step simulate && [ ! -s "$PWRDATA/pwr_index_file.txt" ]; then
   echo "[FATAL] pwr_index_file.txt missing/empty" >&2
   ls -lh "$PWRDATA" | head -n 80   # Dump directory listing to aid diagnosis
   exit 1
@@ -398,11 +571,13 @@ fi
 # The ceiling-division formula (N + C - 1) / C ensures the last chunk is
 # still submitted even when NINDEX is not a perfect multiple of CHUNK_SIZE.
 # Example: 250 rows / 100 per chunk → 3 jobs (jobs 1-100, 101-200, 201-250).
-NINDEX=$(wc -l < "$PWRDATA/pwr_index_file.txt" | tr -d ' ')
-CHUNK_SIZE=100
-NJOBS=$(( (NINDEX + CHUNK_SIZE - 1) / CHUNK_SIZE ))
+if run_step simulate; then
+  NINDEX=$(wc -l < "$PWRDATA/pwr_index_file.txt" | tr -d ' ')
+  CHUNK_SIZE=100
+  NJOBS=$(( (NINDEX + CHUNK_SIZE - 1) / CHUNK_SIZE ))
 
-echo "[INFO] NINDEX=$NINDEX CHUNK_SIZE=$CHUNK_SIZE NJOBS=$NJOBS"
+  echo "[INFO] NINDEX=$NINDEX CHUNK_SIZE=$CHUNK_SIZE NJOBS=$NJOBS"
+fi
 
 # ---------------------------------------------------------------------------
 # Step 2 — Python array jobs
@@ -431,7 +606,9 @@ echo "[INFO] NINDEX=$NINDEX CHUNK_SIZE=$CHUNK_SIZE NJOBS=$NJOBS"
 #   START = (TASK_ID - 1) * CHUNK_SIZE + 1
 #   END   = min(TASK_ID * CHUNK_SIZE, NINDEX)
 
-if [[ "$SINGLETEMP" == "1" ]]; then
+if ! run_step simulate; then
+  echo "[SKIP] simulation array (outside --start-step/--stop-step window)"
+elif [[ "$SINGLETEMP" == "1" ]]; then
   echo "Running in single-temp mode"
   submit "pwr_sub_python_single" "10:00:00" "16GB" "2" -- --array=1-"$NJOBS" --wait \
     "$FILEDIR/pwr_sub_python_single.sh" \
@@ -456,19 +633,23 @@ fi
 #
 # Memory is elevated to 64GB here because combine_data.py loads and
 # concatenates all chunk outputs for each sample size into memory at once.
-submit "combine_data" "1:00:00" "64GB" "4" -- --wait \
-  "$FILEDIR/combine_data.sh" "$WRKDIR" "$FILEDIR" "$EPSILON" "$CONDAENV"
+if run_step combine; then
+  submit "combine_data" "1:00:00" "64GB" "4" -- --wait \
+    "$FILEDIR/combine_data.sh" "$WRKDIR" "$FILEDIR" "$EPSILON" "$CONDAENV"
 
-# ── Guard 1: at least one output file was created ────────────────────────────
-# Verifies that combine_data.sh produced at least one full_*_cov.npy.
-# A count of zero means either all chunk outputs were missing/malformed
-# or combine_data itself crashed before writing anything.
-N_FULL_COV=$(ls "$PWRDATA"/full_*_cov.npy 2>/dev/null | wc -l | tr -d ' ')
-echo "[INFO] full_*_cov.npy count=$N_FULL_COV"
-if [ "$N_FULL_COV" -le 0 ]; then
-  echo "[FATAL] combine_data produced no full_*_cov.npy" >&2
-  ls -lh "$PWRDATA" | head -n 80   # Dump directory listing to aid diagnosis
-  exit 1
+  # ── Guard 1: at least one output file was created ──────────────────────────
+  # Verifies that combine_data.sh produced at least one full_*_cov.npy.
+  # A count of zero means either all chunk outputs were missing/malformed
+  # or combine_data itself crashed before writing anything.
+  N_FULL_COV=$(ls "$PWRDATA"/full_*_cov.npy 2>/dev/null | wc -l | tr -d ' ')
+  echo "[INFO] full_*_cov.npy count=$N_FULL_COV"
+  if [ "$N_FULL_COV" -le 0 ]; then
+    echo "[FATAL] combine_data produced no full_*_cov.npy" >&2
+    ls -lh "$PWRDATA" | head -n 80   # Dump directory listing to aid diagnosis
+    exit 1
+  fi
+else
+  echo "[SKIP] combine_data (outside --start-step/--stop-step window)"
 fi
 
 # ── Guard 2: count distinct sample sizes represented in the outputs ───────────
@@ -481,15 +662,48 @@ fi
 #   full_100_cov.npy  →  100
 #   full_2500_cov.npy →  2500
 # sort -u deduplicates (guards against any accidental filename duplicates).
+# Counted from full_<size>_cor.npy rather than _cov.npy because the cor
+# matrices are what cv.py actually loads, and a run started from --reuse-from
+# links only the files the remaining steps need.
 NUMFILES=$(
-  ls "$PWRDATA"/full_*_cov.npy 2>/dev/null \
-  | sed -E 's/.*\/full_([0-9]+)_cov\.npy/\1/' \
+  ls "$PWRDATA"/full_*_cor.npy 2>/dev/null \
+  | sed -E 's/.*\/full_([0-9]+)_cor\.npy/\1/' \
   | sort -u | wc -l | tr -d ' '
 )
 echo "[INFO] NUMFILES=$NUMFILES"
-if [ "$NUMFILES" -le 0 ]; then
-  echo "[FATAL] NUMFILES=0" >&2
+if [ "$NUMFILES" -le 0 ] && { [ "$RUN_NOISE" == "true" ] || run_step cv; }; then
+  echo "[FATAL] NUMFILES=0 — no full_<size>_cor.npy found in $PWRDATA" >&2
+  ls -lh "$PWRDATA" | head -n 80
   exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# Step 3b — Noise (epsilon only)
+# ---------------------------------------------------------------------------
+# Rewrites full_<size>_yt.npy for the requested EPSILON from combined data
+# that already exists, skipping simulation and aggregation entirely. This is
+# what makes an epsilon sweep cheap: Steps 1-3 run once, and each additional
+# epsilon costs one short job plus its CV.
+#
+# Only fires when the run starts at this step (--start-step noise, which
+# --reuse-from implies). When combine runs in the same invocation it has
+# already written yt for this epsilon, so repeating it here would just redraw
+# the same noise distribution for no reason.
+if [[ "$RUN_NOISE" == "true" ]]; then
+  submit "apply_epsilon" "1:00:00" "32GB" "2" -- --wait \
+    "$FILEDIR/apply_epsilon.sh" "$WRKDIR" "$FILEDIR" "$EPSILON" "$CONDAENV" "$NOISE_SEED"
+
+  # Guard: one yt file per sample size, or cv.py will silently drop sizes —
+  # it only considers sizes where both full_<size>_cor.npy and
+  # full_<size>_yt.npy are present.
+  N_YT=$(ls "$PWRDATA"/full_*_yt.npy 2>/dev/null | wc -l | tr -d ' ')
+  echo "[INFO] full_*_yt.npy count=$N_YT (expected $NUMFILES)"
+  if [ "$N_YT" -ne "$NUMFILES" ]; then
+    echo "[FATAL] apply_epsilon produced $N_YT yt file(s) for $NUMFILES size(s)" >&2
+    exit 1
+  fi
+else
+  echo "[SKIP] apply_epsilon (combine step covers yt, or outside the step window)"
 fi
 
 
@@ -512,11 +726,15 @@ fi
 #
 # Runs synchronously (--wait) so Step 6 (final_data) begins only after
 # all sample-size CV jobs are complete.
+if run_step cv; then
 submit "cv" "24:00:00" "128GB" "20" -- \
   --array=1-"$NUMFILES" --wait \
   --export=ALL,MODEL_FILE="$MODEL_FILE",USE_PCA="$USE_PCA",N_COMPONENTS="$N_COMPONENTS",K_OUTER="$K_OUTER",N_OUTER="$N_OUTER",RANDOM_STATE="$RANDOM_STATE",N_JOBS="$N_JOBS",RIDGE_ALPHAS="$RIDGE_ALPHAS",RIDGE_CV_FOLDS="$RIDGE_CV_FOLDS",RIDGE_K_INNER="$RIDGE_K_INNER",LASSO_N_ALPHAS="$LASSO_N_ALPHAS",LASSO_CV_FOLDS="$LASSO_CV_FOLDS",LASSO_MAX_ITER="$LASSO_MAX_ITER",EN_L1_RATIOS="$EN_L1_RATIOS",EN_N_ALPHAS="$EN_N_ALPHAS",EN_CV_FOLDS="$EN_CV_FOLDS",RF_N_ESTIMATORS="$RF_N_ESTIMATORS",RF_MAX_FEATURES="$RF_MAX_FEATURES",RF_TUNE="$RF_TUNE",RF_K_INNER="$RF_K_INNER",SVR_C_VALS="$SVR_C_VALS",SVR_KERNEL="$SVR_KERNEL",SVR_EPSILON="$SVR_EPSILON",SVR_K_INNER="$SVR_K_INNER",GB_N_ESTIMATORS="$GB_N_ESTIMATORS",GB_LR="$GB_LR",GB_MAX_DEPTH="$GB_MAX_DEPTH",GB_TUNE="$GB_TUNE",GB_K_INNER="$GB_K_INNER" \
   -- \
   "$FILEDIR/cv.sh" "$WRKDIR" "$FILEDIR" "$NUMFILES" "$CONDAENV"
+else
+  echo "[SKIP] cv (outside --start-step/--stop-step window)"
+fi
 
 # ---------------------------------------------------------------------------
 # Step 5 — Final data
@@ -538,10 +756,14 @@ submit "cv" "24:00:00" "128GB" "20" -- \
 # because the manifest echo below serves as the implicit success signal —
 # if final_data.sh crashes, the submit() call will propagate a non-zero
 # exit and the pipeline will abort before reaching it.
-submit "final_data" "12:00:00" "96GB" "8" -- --wait \
-  --export=ALL,MODEL_FILE="$MODEL_FILE",OUT_FORMAT="csv" \
-  -- \
-  "$FILEDIR/final_data.sh" "$WRKDIR" "$FILEDIR" "$CONDAENV"
+if run_step final; then
+  submit "final_data" "12:00:00" "96GB" "8" -- --wait \
+    --export=ALL,MODEL_FILE="$MODEL_FILE",OUT_FORMAT="csv" \
+    -- \
+    "$FILEDIR/final_data.sh" "$WRKDIR" "$FILEDIR" "$CONDAENV"
+else
+  echo "[SKIP] final_data (outside --start-step/--stop-step window)"
+fi
 
 # Pipeline complete — print the manifest path so the caller knows where
 # to find the full record of submitted job IDs and their log file paths.
