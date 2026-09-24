@@ -62,6 +62,9 @@ Optional model selection:
                                         svr, random_forest, gradient_boosting,
                                         custom
   --pca                        Enable PCA preprocessing (default: off)
+  --overwrite                  Refit and replace existing cv_results_* CSVs.
+                               Without it, cv.py skips any sample size that
+                               already has results, so reruns are no-ops.
   --n-components INT           PCA components (default: 500)
 
 Optional model hyperparameters (passed through; ignored if not relevant):
@@ -137,6 +140,7 @@ N_JOBS="${N_JOBS:-1}"
 # ── Model selection ───────────────────────────────────────────────────────────
 MODEL_FILE="${MODEL_FILE:-ridge}"
 USE_PCA="${USE_PCA:-false}"
+OVERWRITE="${OVERWRITE:-false}"   # Refit and replace existing cv_results_* CSVs
 N_COMPONENTS="${N_COMPONENTS:-500}"
 
 # ── Model hyperparameters ─────────────────────────────────────────────────────
@@ -196,6 +200,7 @@ while [[ $# -gt 0 ]]; do
     # Model
     --model)          MODEL_FILE="$2";       shift 2 ;;
     --pca)            USE_PCA="true";        shift 1 ;;
+    --overwrite)      OVERWRITE="true";      shift 1 ;;
     --n-components)   N_COMPONENTS="$2";     shift 2 ;;
     # Hyperparameters
     --ridge-alphas)   RIDGE_ALPHAS="$2";     shift 2 ;;
@@ -380,7 +385,7 @@ echo "[INFO] NTIME=$NTIME"
 echo "[INFO] EPSILON=$EPSILON"
 echo "[INFO] K_OUTER=$K_OUTER  N_OUTER=$N_OUTER  RANDOM_STATE=$RANDOM_STATE  N_JOBS=$N_JOBS"
 echo "[INFO] MODEL_FILE=$MODEL_FILE"
-echo "[INFO] USE_PCA=$USE_PCA"
+echo "[INFO] USE_PCA=$USE_PCA  OVERWRITE=$OVERWRITE"
 echo "[INFO] N_COMPONENTS=$N_COMPONENTS"
 echo "[INFO] RIDGE_ALPHAS=$RIDGE_ALPHAS"
 echo "[INFO] RIDGE_CV_FOLDS=$RIDGE_CV_FOLDS  RIDGE_K_INNER=$RIDGE_K_INNER"
@@ -727,9 +732,28 @@ fi
 # Runs synchronously (--wait) so Step 6 (final_data) begins only after
 # all sample-size CV jobs are complete.
 if run_step cv; then
+# NOTE: these are exported into this shell and carried by --export=ALL rather
+# than listed inline as --export=ALL,VAR=value,...
+# sbatch splits the --export list on commas, so any value that itself contains
+# a comma is silently truncated at the first one: RIDGE_ALPHAS="1,10,100,1000"
+# arrived in cv.sh as RIDGE_ALPHAS=1, collapsing RidgeCV's grid to a single
+# candidate (and the same for EN_L1_RATIOS and SVR_C_VALS). Exporting first
+# keeps the values intact.
+export MODEL_FILE USE_PCA N_COMPONENTS OVERWRITE
+export K_OUTER N_OUTER RANDOM_STATE N_JOBS
+export RIDGE_ALPHAS RIDGE_CV_FOLDS RIDGE_K_INNER
+export LASSO_N_ALPHAS LASSO_CV_FOLDS LASSO_MAX_ITER
+export EN_L1_RATIOS EN_N_ALPHAS EN_CV_FOLDS
+export RF_N_ESTIMATORS RF_MAX_FEATURES RF_TUNE RF_K_INNER
+export SVR_C_VALS SVR_KERNEL SVR_EPSILON SVR_K_INNER
+export GB_N_ESTIMATORS GB_LR GB_MAX_DEPTH GB_TUNE GB_K_INNER
+
+echo "[INFO] exported RIDGE_ALPHAS=$RIDGE_ALPHAS"
+echo "[INFO] exported EN_L1_RATIOS=$EN_L1_RATIOS  SVR_C_VALS=$SVR_C_VALS"
+
 submit "cv" "24:00:00" "128GB" "20" -- \
   --array=1-"$NUMFILES" --wait \
-  --export=ALL,MODEL_FILE="$MODEL_FILE",USE_PCA="$USE_PCA",N_COMPONENTS="$N_COMPONENTS",K_OUTER="$K_OUTER",N_OUTER="$N_OUTER",RANDOM_STATE="$RANDOM_STATE",N_JOBS="$N_JOBS",RIDGE_ALPHAS="$RIDGE_ALPHAS",RIDGE_CV_FOLDS="$RIDGE_CV_FOLDS",RIDGE_K_INNER="$RIDGE_K_INNER",LASSO_N_ALPHAS="$LASSO_N_ALPHAS",LASSO_CV_FOLDS="$LASSO_CV_FOLDS",LASSO_MAX_ITER="$LASSO_MAX_ITER",EN_L1_RATIOS="$EN_L1_RATIOS",EN_N_ALPHAS="$EN_N_ALPHAS",EN_CV_FOLDS="$EN_CV_FOLDS",RF_N_ESTIMATORS="$RF_N_ESTIMATORS",RF_MAX_FEATURES="$RF_MAX_FEATURES",RF_TUNE="$RF_TUNE",RF_K_INNER="$RF_K_INNER",SVR_C_VALS="$SVR_C_VALS",SVR_KERNEL="$SVR_KERNEL",SVR_EPSILON="$SVR_EPSILON",SVR_K_INNER="$SVR_K_INNER",GB_N_ESTIMATORS="$GB_N_ESTIMATORS",GB_LR="$GB_LR",GB_MAX_DEPTH="$GB_MAX_DEPTH",GB_TUNE="$GB_TUNE",GB_K_INNER="$GB_K_INNER" \
+  --export=ALL \
   -- \
   "$FILEDIR/cv.sh" "$WRKDIR" "$FILEDIR" "$NUMFILES" "$CONDAENV"
 else
@@ -757,8 +781,10 @@ fi
 # if final_data.sh crashes, the submit() call will propagate a non-zero
 # exit and the pipeline will abort before reaching it.
 if run_step final; then
+  export MODEL_FILE
+  export OUT_FORMAT="csv"
   submit "final_data" "12:00:00" "96GB" "8" -- --wait \
-    --export=ALL,MODEL_FILE="$MODEL_FILE",OUT_FORMAT="csv" \
+    --export=ALL \
     -- \
     "$FILEDIR/final_data.sh" "$WRKDIR" "$FILEDIR" "$CONDAENV"
 else

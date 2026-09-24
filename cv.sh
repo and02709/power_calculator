@@ -86,6 +86,15 @@ if [[ "$SAVE_ESTIMATORS" == "true" ]]; then
   SAVE_EST_FLAG="--save_estimators"
 fi
 
+# cv.py refuses to clobber an existing cv_results_size<N>_<model>.csv unless
+# --overwrite is set, so without this a rerun in a populated pwr_data/ silently
+# fits nothing and final_data re-aggregates the stale CSVs.
+OVERWRITE=${OVERWRITE:-false}
+OVERWRITE_FLAG=""
+if [[ "$OVERWRITE" == "true" ]]; then
+  OVERWRITE_FLAG="--overwrite"
+fi
+
 # ── Model-specific hyperparameter defaults ────────────────────────────────────
 # All values default here so cv.sh is self-contained.  Values injected via
 # --export in PWR.sh override these defaults.  Flags irrelevant to the selected
@@ -192,4 +201,5 @@ python3 "$FILEDIR/cv.py" \
     $PCA_FLAG                                  \
     $RF_TUNE_FLAG                              \
     $GB_TUNE_FLAG                              \
-    $SAVE_EST_FLAG
+    $SAVE_EST_FLAG                             \
+    $OVERWRITE_FLAG
